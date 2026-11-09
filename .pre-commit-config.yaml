@@ -1,0 +1,60 @@
+# Runs on every commit (after `uv run pre-commit install`) and in CI.
+# Run everything by hand with: uv run pre-commit run --all-files
+repos:
+  # Secret scanning of the staged changes; rules in .gitleaks.toml.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: forbid-env-files
+        name: never commit .env files (only .env.example)
+        language: fail
+        entry: .env files hold secrets and must never be committed
+        files: (^|/)\.env(\..+)?$
+        exclude: (^|/)\.env\.example$
+      - id: forbid-data-files
+        name: never commit market data (data/ or Parquet)
+        language: fail
+        entry: market data lives on the server and in R2, never in git
+        files: (^data/|\.parquet$)
+      - id: uv-lock
+        name: uv.lock matches pyproject.toml
+        language: system
+        entry: uv lock --check
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: uv run --frozen ruff check --fix --force-exclude
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        language: system
+        entry: uv run --frozen ruff format --force-exclude
+        types_or: [python, pyi]
+      - id: mypy
+        name: mypy
+        language: system
+        entry: uv run --frozen mypy
+        types_or: [python, pyi, toml]
+        pass_filenames: false

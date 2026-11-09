@@ -1,0 +1,37 @@
+# Secrets: never commit. Only the blank template is tracked.
+.env
+.env.*
+!.env.example
+
+# Market data lives on the server and in R2, never in git.
+data/
+*.parquet
+
+# Python and tooling
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Experiment tracking (Phase 4)
+mlruns/
+mlartifacts/
+
+# Local files
+*.local
+*.local.*
+.claude/settings.local.json
+.vscode/
+.idea/
+*.swp
+*.log
+.DS_Store
+Thumbs.db

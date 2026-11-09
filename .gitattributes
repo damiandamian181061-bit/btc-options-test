@@ -1,0 +1,13 @@
+# LF line endings for every text file, whatever the OS that checks it out.
+* text=auto eol=lf
+
+# Binary files: never convert.
+*.parquet binary
+*.zst binary
+*.gz binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
