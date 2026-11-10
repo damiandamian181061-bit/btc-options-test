@@ -269,20 +269,28 @@ ssh-keygen -lf ~/.ssh/known_hosts
 #   must include SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU github.com (ED25519)
 ```
 
-Add the **public** half to the repo as a read-only deploy key. From the laptop, with `gh` signed in:
+Add the **public** half to the repo as a read-only deploy key. From the laptop, with `gh` signed in
+(`gh auth login --hostname github.com --git-protocol https --web --scopes workflow`):
 
 ```bash
-ssh deploy@SERVER_IP 'cat ~/.ssh/github_btc-options-lab.pub' \
-  | gh repo deploy-key add - --title "recorder-1 (read-only)" -R damiandamian181061-bit/btc-options-lab
+ssh deploy@SERVER_IP 'cat ~/.ssh/github_btc-options-lab.pub' > /tmp/recorder-1-deploy-key.pub
+gh repo deploy-key add /tmp/recorder-1-deploy-key.pub --title "recorder-1 (read-only)" \
+  -R damiandamian181061-bit/btc-options-lab           # no --allow-write: read-only
 gh repo deploy-key list -R damiandamian181061-bit/btc-options-lab    # shows read-only
 ```
 
-(Or on github.com: the repo's **Settings → Deploy keys → Add deploy key**, with **Allow write
-access unticked**.)
+Or do it on github.com: the repo's **Settings → Deploy keys → Add deploy key**, with **Allow write
+access unticked**. A key added through `gh` is tied to gh's sign-in token: if that token is ever
+revoked, GitHub deletes the deploy key too, and `git pull` on the server fails. Running services
+are not affected. If that happens, re-add the same public key, by either method. A key added on
+github.com has no such link.
 
-Then clone, on the server:
+Check that GitHub accepts the key, then clone, on the server. `</dev/null` stops `ssh` from
+swallowing the rest of a pasted script:
 
 ```bash
+ssh -T git@github.com </dev/null
+#   Hi damiandamian181061-bit/btc-options-lab! You've successfully authenticated, but GitHub does not provide shell access.
 sudo install -d -o deploy -g deploy -m 755 /srv/btc-options-lab
 git clone git@github.com:damiandamian181061-bit/btc-options-lab.git /srv/btc-options-lab
 ```
