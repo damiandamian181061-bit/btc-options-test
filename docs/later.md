@@ -12,3 +12,14 @@ could pick it up.
 - **DigitalOcean metrics agent** (Phase 0). `do-agent` wasn't installed on recorder-1 even though
   monitoring was ticked. Damian may install it from the Droplet's Graphs tab; it doesn't affect the
   platform.
+- **Backfill trades after a reconnect** (Phase 1). Trades sent while a connection was down are
+  lost from the live feed, but `public/get_last_trades_by_currency_and_time` can fetch them;
+  `option_trades` already skips duplicates by `trade_id`. Phase 2, with the gap report.
+- **Instrument events instead of polling** (Phase 1). Deribit's `instrument.state.{kind}.{currency}`
+  and `instrument.creation.{kind}.{currency}` channels announce listings and expiries as they
+  happen; discovery could run on those as well as every 10 minutes. Any phase.
+- **Smaller raw files** (Phase 1). Sorting each Parquet row group by instrument, or delta-encoding
+  the timestamps, would likely shrink the raw stream a lot. Worth doing if the day-one volume
+  is large.
+- **Open interest timing** (Phase 1). Deribit's ticker docs say `open_interest` is reported with
+  a delay. Phase 3 should check it before any feature relies on it.

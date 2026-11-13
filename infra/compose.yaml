@@ -1,0 +1,96 @@
+# btc-options-lab services on recorder-1. Always run through infra/dc, which reads .env:
+#   infra/dc up -d --build      start everything, or rebuild and restart what changed
+#   infra/dc ps                 status
+#   infra/dc logs -f recorder   follow the recorder's log
+# infra/dc refuses "config", which would print DATABASE_URL with its password.
+#
+# No service publishes a port, so nothing here can be reached from the internet. Every service
+# restarts after a crash or a reboot unless it was stopped by hand.
+name: optlab
+
+x-app: &app
+  image: optlab:latest
+  build:
+    context: ..
+    dockerfile: infra/docker/Dockerfile
+  restart: unless-stopped
+  init: true
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: timescale/timescaledb:2.30.2-pg17
+    restart: unless-stopped
+    # Takes the user, password and database name from DATABASE_URL, then starts PostgreSQL.
+    entrypoint: ["/bin/sh", "/optlab/db-entrypoint.sh"]
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=40
+      - -c
+      - max_worker_processes=12
+      - -c
+      - timescaledb.max_background_workers=4
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - wal_compression=on
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      NO_TS_TUNE: "true"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/entrypoint.sh:/optlab/db-entrypoint.sh:ro
+    shm_size: 256m
+    mem_limit: 1536m
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  recorder:
+    <<: *app
+    command: ["optlab-recorder"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      LIVE_TRADING: ${LIVE_TRADING:-false}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      DERIBIT_ENV: ${DERIBIT_ENV:-public}
+      OPTLAB_DATA_DIR: /app/data
+    volumes:
+      - ../data:/app/data
+    mem_limit: 1g
+    stop_grace_period: 30s
+
+  health:
+    <<: *app
+    command: ["optlab-health"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      LIVE_TRADING: ${LIVE_TRADING:-false}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      DERIBIT_ENV: ${DERIBIT_ENV:-public}
+      HC_PING_URL_RECORDER: ${HC_PING_URL_RECORDER:-}
+      HC_PING_URL_DISK: ${HC_PING_URL_DISK:-}
+      OPTLAB_DATA_DIR: /app/data
+    volumes:
+      - ../data:/app/data:ro
+    mem_limit: 256m
+
+volumes:
+  pgdata:

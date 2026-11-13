@@ -1,0 +1,15 @@
+#!/bin/sh
+# docker compose for btc-options-lab, with settings from the .env at the repo root.
+#   infra/dc up -d --build      start or update everything
+#   infra/dc ps                 status
+#   infra/dc logs -f recorder   follow a service's log
+# "config" is refused because it prints every setting, including the database password.
+set -eu
+cd "$(dirname "$0")/.."
+for arg in "$@"; do
+    if [ "$arg" = "config" ]; then
+        echo "infra/dc: refusing 'config': it would print secrets from .env" >&2
+        exit 2
+    fi
+done
+exec docker compose --env-file .env -f infra/compose.yaml "$@"

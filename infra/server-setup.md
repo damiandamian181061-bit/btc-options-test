@@ -328,6 +328,74 @@ git -C /srv/btc-options-lab remote -v; ls -l /srv/btc-options-lab/.env
 EOF
 ```
 
+## 14. The recorder (Phase 1)
+
+Everything runs in Docker Compose from `/srv/btc-options-lab`, always through `infra/dc`,
+which adds `--env-file .env` and refuses `config` (that would print the database password).
+Three services, none publishing a port: `db` (TimescaleDB), `recorder` and `health`. Each has
+`restart: unless-stopped`, so it comes back after a crash or a reboot.
+
+**Before the first start**, `.env` needs `HC_PING_URL_RECORDER` and `HC_PING_URL_DISK` (pasted
+by Damian) and `DATABASE_URL`. The database password is generated on the server and written
+straight into `.env`, never shown. The command prints only a count that confirms it worked:
+
+```bash
+cd /srv/btc-options-lab
+git pull --ff-only
+# Only if the DATABASE_URL line is still empty: a 64-hex-character password, never printed.
+grep -q '^DATABASE_URL=$' .env && \
+  sed -i "s|^DATABASE_URL=\$|DATABASE_URL=postgresql://optlab:$(openssl rand -hex 32)@db:5432/optlab|" .env
+grep -c '^DATABASE_URL=postgresql://optlab:[0-9a-f]\{64\}@db:5432/optlab$' .env   # must print 1
+ls -l .env                                                                         # still -rw------- deploy
+mkdir -p data/raw                                                                  # owned by deploy (uid 1000)
+```
+
+The user and database are both `optlab`, and the password only matters the first time `db`
+starts, when it creates its data directory. Changing it later needs `ALTER USER` as well.
+
+**First start.** The database is new and empty, so there is nothing to back up yet:
+
+```bash
+infra/dc build                                   # the optlab image (about 2 minutes)
+infra/dc up -d db                                # TimescaleDB; wait for "healthy" in: infra/dc ps
+infra/dc run --rm recorder alembic -c infra/alembic.ini upgrade head
+infra/dc up -d                                   # recorder and health
+infra/dc ps                                      # three services Up; db (healthy)
+infra/dc logs --tail 30 recorder                 # "discovery: ... options", then "status:" lines each minute
+```
+
+**Every later migration** needs a backup first (CLAUDE.md). Until the nightly R2 backups exist
+(Phase 2), that is a local dump:
+
+```bash
+mkdir -p backups
+infra/dc exec -T db pg_dump -U optlab -d optlab -Fc > "backups/pre-migration-$(date -u +%Y%m%dT%H%MZ).dump"
+ls -lh backups/                                  # the dump exists and is not empty
+infra/dc run --rm recorder alembic -c infra/alembic.ini upgrade head
+```
+
+**Updating the code** (no schema change): `git pull --ff-only && infra/dc up -d --build`. The
+recorder restarts in a few seconds; its snapshot for that minute may be missed, which the
+gap check tolerates (up to 5 minutes).
+
+**Checking it.** The recorder logs a `status:` line every minute (connections up, messages per
+second, rows in the last snapshot, database backlog). The two gate queries run inside the `db`
+container, where `psql` needs no password:
+
+```bash
+infra/dc exec -T db psql -U optlab -d optlab < infra/sql/gap_check.sql
+infra/dc exec -T db psql -U optlab -d optlab < infra/sql/volume.sql
+du -sh data/raw/quotes data/raw/trades
+```
+
+**Raw files** go to `data/raw/{quotes,trades}/YYYY-MM-DD/`, one zstd Parquet file per hour (and
+per recorder run). A name ending `.inprogress` is the hour being written; `.incomplete` is an
+hour cut short by a crash, which cannot be read.
+
+**Health.** The `health` service pings `HC_PING_URL_RECORDER` every minute while `option_quotes`
+has rows from the last 2 minutes, and `HC_PING_URL_DISK` every 10 minutes with how full the disk
+is (failure pings marked WARNING at 70% and CRITICAL at 85%).
+
 ## If you are locked out
 
 1. **Droplet Console** (Droplet page → **Access → Launch Droplet Console**). It runs through

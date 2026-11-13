@@ -16,6 +16,25 @@ jobs:
     name: Lint, types and tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # Throwaway database for the schema and store tests; reachable only from this job.
+      timescaledb:
+        image: timescale/timescaledb:2.30.2-pg17
+        env:
+          POSTGRES_USER: optlab_ci
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: optlab_ci
+          NO_TS_TUNE: "true"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U optlab_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      OPTLAB_TEST_DATABASE_URL: postgresql://optlab_ci:ci-only-not-a-secret@localhost:5432/optlab_ci
+      OPTLAB_REQUIRE_DB_TESTS: "1"  # fail, rather than skip, if the database is missing
     steps:
       - uses: actions/checkout@v7
 
@@ -35,7 +54,7 @@ jobs:
       - name: Mypy (strict for src/)
         run: uv run mypy
 
-      - name: Pytest
+      - name: Pytest (database tests included)
         run: uv run pytest
 
       - name: File hygiene hooks (whitespace, line endings, forbidden files)
@@ -43,6 +62,21 @@ jobs:
           # Run above or in the secret-scan job.
           SKIP: gitleaks,ruff-check,ruff-format,mypy
         run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  docker-image:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the optlab image
+        run: docker build -f infra/docker/Dockerfile -t optlab:ci .
+
+      - name: The image refuses live trading
+        run: |
+          out=$(docker run --rm -e LIVE_TRADING=true optlab:ci optlab-recorder 2>&1 || true)
+          echo "$out" | grep -q "LIVE_TRADING=true is refused"
 
   secret-scan:
     name: Secret scan (gitleaks, full history)

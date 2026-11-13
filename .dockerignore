@@ -1,0 +1,19 @@
+# Never send secrets, market data or local tooling into an image build.
+.env
+.env.*
+**/.env
+**/.env.*
+data/
+backups/
+.git/
+.github/
+.venv/
+**/__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+mlruns/
+mlartifacts/
+*.parquet
+*.log

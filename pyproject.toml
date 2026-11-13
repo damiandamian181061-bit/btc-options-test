@@ -6,9 +6,19 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Damian Craddock" }]
 dependencies = [
+    "alembic>=1.20.1",
+    "msgspec>=0.22.0",
+    "psycopg[binary]>=3.3.9",
+    "pyarrow>=26.0.1",
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
+    "sqlalchemy>=2.1.8",
+    "websockets>=17.4",
 ]
+
+[project.scripts]
+optlab-recorder = "optlab.market_data.service:recorder_main"
+optlab-health = "optlab.market_data.service:health_main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14"]
@@ -39,7 +49,11 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is how pytest works
+"tests/**" = [
+    "S101",  # assert is how pytest works
+    "S105",  # fake secrets in tests
+    "S311",  # seeded random numbers in tests
+]
 
 [tool.mypy]
 python_version = "3.12"
@@ -47,6 +61,11 @@ files = ["src", "tests"]
 strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# pyarrow ships without type stubs.
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # src/ is fully strict; tests may leave fixtures and helpers unannotated.
@@ -64,11 +83,19 @@ testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 xfail_strict = true
 filterwarnings = ["error"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "db: needs a TimescaleDB test database (OPTLAB_TEST_DATABASE_URL); skipped when unset",
+]
 
 [dependency-groups]
 dev = [
     "mypy>=2.4.1",
     "pre-commit>=4.7.0",
     "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pyyaml>=6.0.3",
     "ruff>=0.17.4",
+    "types-pyyaml>=6.0.12.20261111",
 ]
