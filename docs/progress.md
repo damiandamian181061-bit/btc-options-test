@@ -8,7 +8,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | Phase | When | Gate before the next phase | Status |
 | --- | --- | --- | --- |
 | 0 · Setup | Week 1 · days 1–2 | CI is green, Damian can SSH in as `deploy`, root login is refused, and `docker run hello-world` works on the server (backups and alerts configured) | **Passed** 10 Nov 2026 |
-| 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | Open |
+| 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | **Recording** since 13 Nov 2026 16:32 UTC; gate check due from 14 Nov 16:35 UTC |
 | 2 · Data and checks | Week 1 · days 4–7 | Restore from R2 works; the gap report covers every recorded day; the liquidity report names the book | Open |
 | 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | Open |
 | 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | Open |
@@ -22,7 +22,69 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 ## Current phase
 
-Phase 0 · Setup: **passed** on 10 November 2026. Phase 1 has not started.
+Phase 1 · Recorder live: built, tested and deployed on recorder-1. The recorder has been running
+since **2026-11-13 16:32 UTC**. The gate needs 24 full hours, so it can be checked from
+**2026-11-14 16:35 UTC** (Damian: "Check the Phase 1 gate and report.").
+
+## Phase 1 · Recorder: build and deploy (13 Nov 2026)
+
+What was built (commit `89c4f6f`, CI run 43457696031 green: lint, types, 138 tests including
+the database tests, Docker image build, full-history secret scan):
+
+- **Schema** (Alembic `0001`): `instruments`, `option_quotes`, `underlying_ticks`,
+  `option_trades` (one row per `trade_id`), `delivery_prices` (exact `numeric`),
+  `connection_events`. `option_quotes` and `underlying_ticks` are hypertables with one-day
+  chunks, compressed after 7 days (segment by instrument).
+- **Deribit adapter** (`src/optlab/market_data/deribit/`): public methods only (anything else
+  raises); JSON-RPC ids mapped to futures; `public/set_heartbeat` (10 s) with `test_request`
+  answered by `public/test`; a connection silent for 30 s is treated as dead; reconnect with
+  exponential backoff (1 s to 60 s, ±20% jitter) and resubscribe; token buckets below Deribit's
+  documented limits; at most 400 channels per connection. Deribit JSON is decoded into
+  msgspec structs that never leave the adapter.
+- **Discovery** every 10 minutes and at 08:00:30 UTC, from instrument metadata only.
+- **Recorder**: one row per instrument per minute, point in time (the snapshot is taken before
+  the first message received after the minute is applied), COPY into a staging table then
+  `INSERT ... ON CONFLICT DO NOTHING`; trades every 5 s; delivery prices at start and at 08:01,
+  08:05, 08:15 and 08:30 UTC; every connect, disconnect and reconnect in `connection_events`.
+- **Raw stream**: best bid/ask changes (from the 100 ms ticker) and option trades in hourly
+  zstd Parquet files under `data/raw/{quotes,trades}/YYYY-MM-DD/`.
+- **Health service**: recorder ping only when `option_quotes` has rows from the last 2 minutes;
+  disk ping every 10 minutes, failure pings marked WARNING at 70% and CRITICAL at 85%.
+- **Deploy**: `infra/compose.yaml` (`db`, `recorder`, `health`; no published ports;
+  `restart: unless-stopped`), run through `infra/dc`. Steps in `infra/server-setup.md` §14.
+
+Conventions applied at the adapter boundary: Deribit sends IVs in percent; they are stored as
+decimals (41.25 → 0.4125). An empty side of the book (Deribit: price 0) is stored as a NULL
+price with size 0. Each price row carries its currency (BTC for inverse option premiums, USDC
+for linear, USD for inverse futures and `btc_usd`). Greeks are stored in Deribit's units.
+
+Checked against the live API (12–13 Nov) before and after building:
+
+- Deribit's API matches the brief: both option books, both perpetuals with funding, dated
+  futures in both books, the `btc_usd` and `btc_usdc` indexes and delivery prices are public.
+- The universe on 13 Nov: 1,600 BTC options (both books), 2 perpetuals, 20 dated futures,
+  2 indexes: 1,626 channels on 5 connections, about 1,700 messages a second.
+- Deribit accepts subscriptions to unknown instruments silently (they are just missing from
+  the reply); the adapter compares the reply and records refusals as `subscribe_rejected`.
+
+Deploy on recorder-1 (13 Nov 2026, 16:24–16:35 UTC):
+
+- `DATABASE_URL` was generated on the server (`openssl rand -hex 32`) and written into `.env`
+  without being printed; a format check printed `1`; `.env` stayed `-rw------- deploy`.
+- Image built on the server; `db` healthy (TimescaleDB 2.30.2, PostgreSQL 17); a pre-migration
+  dump was taken (`backups/pre-migration-20261113T1629Z.dump`, empty database); migration
+  `0001` applied; both hypertables report compression on with a 7-day policy.
+- After 2.5 minutes: 3 services up; 1,600 `option_quotes` rows in each of 16:33 and 16:34 and
+  24 `underlying_ticks` rows; 5/5 connections, about 1,740 msg/s, 0 decode errors; both
+  healthchecks.io pings answered OK. Recorder 22% of one CPU and 84 MiB, database 91 MiB;
+  3.1 GiB of memory still available; disk 7% used.
+
+Tests: the adapter is tested against a local fake Deribit server that replays messages in the
+format recorded from the live feed (values made up, because raw vendor data is never
+committed), including dropped connections, close code 4000, silence, refused channels and
+garbage messages. A full recorder run against the fake server cuts every connection and checks
+that it reconnects, resubscribes and keeps writing. Database tests run against TimescaleDB,
+including the gate's gap query (a 4-minute hole passes, a 5-minute hole fails).
 
 ## Phase 0 · Setup: gate evidence
 
@@ -69,10 +131,20 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-Phase 1 · Recorder live (Prompt 1). Before it starts, Damian pastes `HC_PING_URL_RECORDER` and
-`HC_PING_URL_DISK` into `/srv/btc-options-lab/.env` on the server.
+1. From 2026-11-14 16:35 UTC: check the Phase 1 gate. Run `infra/sql/gap_check.sql` (gaps over
+   5 minutes in the last 24 hours) and `infra/sql/volume.sql` plus `du` on `data/raw` (day-one
+   volume), propose the raw-stream cap for R2, and record the evidence here.
+2. Then Phase 2 · Data and checks (Prompt 2). Before it starts, Damian pastes the R2 keys and
+   `HC_PING_URL_BACKUP` into the server's `.env`.
 
 ## Open questions
+
+- **Two-step USDC settlement.** The brief says linear USDC options settle in two steps since
+  April 2026. Deribit's API docs and changelogs (read 12 Nov) don't mention it. The recorder
+  stores the `btc_usdc` and `btc_usd` delivery prices either way; Phase 4 needs the exact rule
+  from Damian or Deribit's support pages.
+- **Open interest delay.** Deribit's ticker docs say `open_interest` is reported with a delay.
+  Stored as given; Phase 3 should check it before using it.
 
 - JEV details (inputs, outputs, determinism, speed and cost per call, training dates, whether it
   can be self-hosted). Needed by week 4.
