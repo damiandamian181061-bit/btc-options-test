@@ -96,6 +96,9 @@ def test_restore_script_cleans_up_only_its_own_project() -> None:
     script = (INFRA / "restore-test").read_text(encoding="utf-8")
     assert (INFRA / "restore-test").stat().st_mode & 0o111
     assert "-f infra/restore-test.compose.yaml" in script
+    assert "PROJECT=optlab-restore-test" in script
+    assert 'docker compose -p "$PROJECT"' in script  # pinned, whatever the file says
+    assert compose()["name"] != "optlab-restore-test"
     assert "trap cleanup EXIT" in script
     assert "down --volumes --remove-orphans" in script
     assert "openssl rand" in script

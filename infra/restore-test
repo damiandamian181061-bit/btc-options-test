@@ -13,8 +13,20 @@ cd "$(dirname "$0")/.."
 RESTORE_DB_PASSWORD=$(openssl rand -hex 24)
 export RESTORE_DB_PASSWORD
 
-rt() { docker compose --env-file .env -f infra/restore-test.compose.yaml "$@"; }
-cleanup() { rt down --volumes --remove-orphans </dev/null >/dev/null 2>&1 || true; }
+# Its own project, pinned here as well as in the file. "down" below acts only on resources
+# labelled with this project, so it can never reach the live stack (project "optlab").
+PROJECT=optlab-restore-test
+if [ "$(sed -n 's/^name: *//p' infra/compose.yaml)" = "$PROJECT" ]; then
+    echo "restore-test: the live stack must not be named $PROJECT" >&2
+    exit 2
+fi
+
+rt() { docker compose -p "$PROJECT" --env-file .env -f infra/restore-test.compose.yaml "$@"; }
+cleanup() {
+    echo "restore-test: removing only project $PROJECT:"
+    rt --dry-run down --volumes --remove-orphans </dev/null 2>&1 | sed 's/^/  /' || true
+    rt down --volumes --remove-orphans </dev/null >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
