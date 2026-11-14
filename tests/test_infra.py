@@ -137,3 +137,12 @@ def test_db_entrypoint_parses_database_url() -> None:
     script = (INFRA / "db" / "entrypoint.sh").read_text(encoding="utf-8")
     assert "unset DATABASE_URL" in script
     assert 'exec docker-entrypoint.sh "$@"' in script
+
+
+def test_no_container_gets_the_docker_socket() -> None:
+    """Only the host (systemd, as deploy) starts containers; none can control Docker."""
+    for name in ("compose.yaml", "restore-test.compose.yaml"):
+        for service, spec in compose(name)["services"].items():
+            for volume in spec.get("volumes", []):
+                assert "docker.sock" not in str(volume), f"{name} {service}"
+            assert not spec.get("privileged"), f"{name} {service}"

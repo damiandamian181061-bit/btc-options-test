@@ -36,6 +36,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--data", type=Path, default=Path("data"))
     parser.add_argument("--every", type=int, default=5, help="sample every N snapshot minutes")
+    parser.add_argument("--out", type=Path, default=REPORT, help="where to write the report")
     args = parser.parse_args()
 
     source = ParquetSource.from_data_dir(args.data)
@@ -158,9 +159,9 @@ def main() -> None:
     body = "\n".join(lines) + "\n"
 
     kept = ""
-    if REPORT.exists() and MARKER in REPORT.read_text(encoding="utf-8"):
-        kept = MARKER + REPORT.read_text(encoding="utf-8").split(MARKER, 1)[1]
-    REPORT.write_text(body + kept, encoding="utf-8")
+    if args.out.exists() and MARKER in args.out.read_text(encoding="utf-8"):
+        kept = MARKER + args.out.read_text(encoding="utf-8").split(MARKER, 1)[1]
+    args.out.write_text(body + kept, encoding="utf-8")
     print(body)
 
 
