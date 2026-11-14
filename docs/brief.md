@@ -2,7 +2,7 @@
 
 Oct 22, 2026 · @Damian
 
-> **Snapshot copy.** Exported on 9 November 2026 from the live Claude Doc, which stays the source of truth: https://claude.ai/artifact/1FWZes94e2zuUMb6XKDER2
+> **Snapshot copy.** Exported on 14 November 2026 from the live Claude Doc, which stays the source of truth: https://claude.ai/artifact/1FWZes94e2zuUMb6XKDER2
 >
 > The doc has two tabs, both included here: Part 1 is the Build Brief, Part 2 (at the end of this file) is the Claude Code prompts.
 
@@ -57,7 +57,7 @@ Every disagreement between the team plan and blueprint v1.1 is now settled, most
 | --- | --- | --- |
 | Team | You and Claude Code. Claude Code writes all code, including Omer's and Reggie's lanes and your maths. | You make the finance calls and approve each step. |
 | Timeline | About a month of full-day work, then the challenger models in week 5. A rough end-to-end version runs by the end of week 1. | Week-by-week schedule in the Build plan. |
-| Where we build | Claude Code in VS Code (and the terminal) on your laptop, inside WSL, with GitHub connected. Tests and backtests run on the laptop. | Same Linux as the server, so what works locally works there. |
+| Where we build | Claude Code in the Ubuntu (WSL) terminal on your laptop, with GitHub connected; VS Code for reading the code. Tests and backtests run on the laptop. | Same Linux as the server, so what works locally works there. |
 | Always-on server | One small server (DigitalOcean Basic Droplet in London: 2 vCPU, 4 GB memory, 80 GB disk) for the recorder, paper trading and the dashboard. Created 27 October; Hetzner was skipped because it is refusing new customers. | A laptop sleeps, travels and restarts; these three can't stop. |
 | Code | Starting from scratch. | No old code, handover or spec carried over. |
 | Database | PostgreSQL with the TimescaleDB extension, so both in one. | Explained below. |
@@ -69,13 +69,22 @@ Every disagreement between the team plan and blueprint v1.1 is now settled, most
 | Models | Black-76 first. GEV/EVT tail model with JEV in week 4. Heston and Bates in week 5, after release v1.0. | Everything else depends on Black-76. |
 | Selector | Fixed rules are the champion; JEV is the challenger. | JEV only proposes; the risk gateway decides. You send JEV's details before Phase 7. |
 | Spread orders | Combo orders in paper trading where Deribit offers them. Backtests fill each leg at its own bid/ask. | Leg-by-leg fills are the conservative test. |
-| Valuation | Mark at Deribit's mark price. Forward from the matching future, else put-call parity. Spline smile first, SVI later. Settle at Deribit's delivery price. |  |
+| Valuation | Mark at Deribit's mark price. Forward from the matching future, else put-call parity. Spline smile first, SVI later. Settle at Deribit's delivery price. | Since 2026 an in-the-money option settles through its expiry's future, with the same payoff. See Settlement below. |
 | Paper capital | 100,000 USDC | Raised from 50,000 on 25 October. |
 | Ranking weights | α 97.5%, λ 1, κ 0, μ 0 to start | Confirmed. Tuned on validation data only. |
 | Dashboard | Streamlit, public and read-only at damiantrades.com, or damian00trades.com if it's taken. | Nothing on the public site can change the system; admin actions run from your laptop. |
 | Repo | `btc-options-lab`, created private in Phase 0, public with an MIT licence at release. Old site linked in the README as v1. | Confirmed. The server deploys from it. |
 | Backups | Cloudflare R2, capped at about $10 a month, with a $5 budget alert; bucket and key created 28 October. Alerts by email from healthchecks.io, set up 27 October. |  |
 | Claude plan | Pro for now (decided 9 November); upgrade to Max if usage limits slow the build. | See Costs. |
+| Claude Code set-up | Opus 5.5 at xhigh effort, saved as the default. Manual permission mode by default; accept edits may be switched on for a session; no auto mode for now. SSH key loaded with keychain. | Decided 9 November. Auto mode to be reconsidered for the laptop-only coding from Phase 3. |
+| Server access | Admin user deploy: key-only login, passwordless sudo. Root and password logins off. ufw off: the cloud firewall ssh-only stays attached, and containers never publish ports. | Done 9 November. Rebuild steps in infra/server-setup.md. |
+| Server upkeep | Security updates install automatically, but the server never reboots itself, and Docker is updated by hand. UTC time with chrony; 2 GB swap. DigitalOcean's metrics agent isn't installed. | Done 9 November. Reboot policy for kernel updates still to decide, after the Phase 1 gate. |
+| GitHub access | GitHub CLI (gh) from GitHub's own apt source, with Git over HTTPS. The server pulls the repo into /srv/btc-options-lab with a read-only deploy key. | Done 10 November. The deploy key was added through gh, so the laptop stays signed in to gh. |
+| Server .env | You pasted the R2 and healthchecks values yourself (10 November). The database password was generated on the server and written in without ever being displayed (13 November). | Only the deploy user can read it. |
+| Recorder data rules | IVs stored as decimals (Deribit sends percent). An empty bid or ask is stored as blank, never as 0. One point-in-time row per option per minute; each trade stored once. Instruments read from Deribit's metadata, never parsed from names. | Decided 12–13 November. |
+| Phase 1 gate rule | Strict: no more than 5 minutes between any two recorded minutes across the 24 hours, with missing minutes at either end counting. | Decided 13 November. The query is infra/sql/gap\_check.sql. |
+| Tests and deploys | Database tests must run in CI: without a test database they fail rather than skip. CI also builds the Docker image and checks it refuses LIVE\_TRADING=true. A pg\_dump backup before every database migration on the server. | Since 13 November. |
+| Old-site API keys | Not reused. Any key this project needs is made fresh. | Decided 14 November. |
 
 **Database: TimescaleDB is PostgreSQL with an add-on, so we get both.** PostgreSQL is the database; TimescaleDB is an extension installed inside it. Ordinary tables (instruments, orders, backtest results) stay plain PostgreSQL.
 
@@ -94,6 +103,14 @@ btc-options-lab/
   tests/  research/  docs/
   CLAUDE.md
 ```
+
+**Settlement: through the expiry's future, with the same payoff.** Since early April 2026, an in-the-money linear (USDC) option first becomes a position in its expiry's linear future, at the strike. That future then cash-settles in USDC at the delivery price, the time-weighted average of the Deribit index from 07:30 to 08:00 UTC. Inverse options have settled the same way since 1 August 2026.
+
+For the backtest, each in-the-money leg is still paid its intrinsic value at the delivery price, and out-of-the-money legs expire worthless. The option's usual delivery fee is charged once, when it converts into the future; the rate comes from Deribit's fee page in Phase 2B. Netting against an expiry future already held can only lower fees, and v1 holds none.
+
+Deribit lists a linear future for every linear option expiry, so each expiry in the USDC book has its own future for the forward.
+
+Sources, checked 14 November 2026: [Deribit: Linear USDC Options](https://support.deribit.com/hc/en-us/articles/31424932728093-Linear-USDC-Options) · [Deribit: Inverse Options](https://support.deribit.com/hc/en-us/articles/31424939096093-Inverse-Options) · [Deribit: Futures Expiries](https://support.deribit.com/hc/en-us/articles/25944688876957-Contract-Introduction-Policy)
 
 ## Your setup steps
 
@@ -198,7 +215,7 @@ We'll do the exact clicks together in Phase 6.
 - We start from scratch, so no old code, handover or spec is carried over.
 - Make sure btc-vol-models and BTC-Options-Strategy- are in your GitHub account; Claude Code reads them from there once you're signed in.
 - Send JEV's details: what it takes in, what it returns, how it was trained and where it runs.
-- If anyone created API keys for the old site, revoke them.
+- Old-site API keys aren't reused; any key this project needs is made fresh (decided 14 November).
 
 ## Details to fill in
 
@@ -219,7 +236,7 @@ The first table holds only non-secret details. The server's IP address, the R2 e
 | R2 budget alert | $5 a month (emails a warning; doesn't stop charges) | 8 |
 | healthchecks check names | recorder data flowing (5 min, grace 5 min), nightly backup (1 day, grace 2 h), disk space (1 h, grace 1 h); created 27 October | 8 |
 | Claude plan | Pro for now (decided 9 November); upgrade to Max if usage limits slow the build | 4 |
-| Claude Code settings | Starts in Manual mode (asks before commands and edits); SSH key loaded with keychain (both 9 November) | 4, 6 |
+| Claude Code settings | Opus 5.5 at xhigh effort; starts in Manual mode (asks before commands and edits); SSH key loaded with keychain (all 9 November) | 4, 6 |
 | Laptop memory | 16 GB, fixed (Core Ultra 5 226V); WSL capped at 8 GB | 2 |
 | Domain | damiantrades.com, or damian00trades.com if taken | 9 |
 | Selector | Fixed rules, with JEV as challenger (details to send) | 11 |
@@ -275,7 +292,7 @@ Decided on 25 October: no purchase. Backtests run on our own recording, which gr
 
 **What it is.** Tardis.dev records exchanges' live data feeds and sells the history. For Deribit it covers every instrument, including all options, since 30 March 2019.
 
-**Why VS Code can't replace it.** VS Code is the editor where the code lives; it can't produce past market data. Deribit's API serves live quotes but not past order books, so the only sources are our own recorder, from today, or a vendor that recorded the past, like Tardis.
+**Why VS Code can't replace it.*- VS Code is the editor where the code lives; it can't produce past market data. Deribit's API serves live quotes but not past order books, so the only sources are our own recorder, from today, or a vendor that recorded the past, like Tardis.
 
 **How it works.** You subscribe to a data plan (the Options plan covers Deribit options) and download daily CSV files.
 
@@ -440,12 +457,12 @@ The dashboard and paper trading overlap the phases above them, and a rough end-t
 ### Phase 0: Setup (week 1, days 1–2)
 
 - Builds: your setup steps; repo skeleton (Python 3.12, uv, ruff, mypy, pytest, pre-commit with secret scanning, GitHub Actions CI); `CLAUDE.md` and `docs/progress.md`; server hardening (non-root user, SSH keys only, SSH-only firewall, automatic security updates, time sync, Docker).
-- Gate: Docker and Claude Code work on the laptop, the server answers over SSH, the repo exists, and backups and alerts are configured.
+- Gate: Docker and Claude Code work on the laptop, the server answers over SSH, the repo exists, and backups and alerts are configured. Passed on 10 November.
 
 ### Phase 1: Recorder live (week 1, days 2–4)
 
 - Builds: settings that refuse to start if `LIVE_TRADING=true`; Deribit WebSocket client with heartbeats, reconnect with backoff, resubscribe, rate limits and several connections; instrument discovery for BTC\_USDC and inverse BTC options, perps and futures, every 10 minutes and after each 08:00 UTC expiry; minute snapshots into TimescaleDB; raw top-of-book and trade stream into hourly compressed Parquet; health pings sent only when fresh rows land; disk alert; Docker Compose deploy with automatic restarts.
-- Gate: 24 hours with no gap over 5 minutes, and day-one data volume measured, with the raw-stream budget set from it.
+- Gate: 24 hours with no gap over 5 minutes, and day-one data volume measured, with the raw-stream budget set from it. The recorder went live on 13 November; its first 24 hours end at about 16:35 UTC on 14 November.
 
 ### Phase 2: Data platform and checks (week 1, days 4–7)
 
@@ -459,7 +476,7 @@ The dashboard and paper trading overlap the phases above them, and a rough end-t
 
 ### Phase 4: Backtest engine (weeks 2–3)
 
-- Builds: event loop over point-in-time snapshots; fills that cross the spread at top of book, with partial fills beyond it; fee schedule with the premium cap; perp trading and funding for the hedged benchmarks; risk gateway with logged rejections; double-entry ledger; settlement at Deribit's delivery price, including the two-step USDC settlement; run records (config, git commit, dataset hash, seed); results tables and MLflow, with backtests run from your laptop.
+- Builds: event loop over point-in-time snapshots; fills that cross the spread at top of book, with partial fills beyond it; fee schedule with the premium cap; perp trading and funding for the hedged benchmarks; risk gateway with logged rejections; double-entry ledger; settlement at Deribit's delivery price, including the two-step settlement through the expiry's future; run records (config, git commit, dataset hash, seed); results tables and MLflow, with backtests run from your laptop.
 - Gate: determinism, leakage and reconciliation tests pass on a real week, and a hand-checked smoke trade matches.
 
 ### Phase 5: Strategies and evaluation (week 3)
@@ -512,7 +529,7 @@ The failures that matter most are the recorder silently stopping, a backtest tha
 | Backtest | High hit rate hides rare large losses | Expected Shortfall, stress tests and drawdown are judged alongside the thesis hit rate. |
 | Finance | Unit mix-ups: USDC vs BTC premiums, vega per 1% vs per 1.0, days vs years | One conventions doc. Money values carry their currency. Tests compare our Greeks with Deribit's. |
 | Finance | Accounting errors | Double-entry ledger. A reconciliation test checks that option, hedge, fee and funding P&L sum to the change in equity at every step. |
-| Finance | Settlement handled wrongly, including the two-step USDC settlement since April 2026 | Settlement lives in one module and is reconciled against Deribit's delivery prices. |
+| Finance | Settlement handled wrongly, including the two-step settlement through the expiry's future (linear options since April 2026, inverse since 1 August 2026) | Settlement lives in one module and is reconciled against Deribit's delivery prices. |
 | Finance | Maths that looks right but isn't | Golden tests against your btc-vol-models numbers and finite differences. You review every maths change. |
 | Claude Code | Context lost between sessions | `CLAUDE.md`, this brief and the progress log are read at every start. One task at a time, committed once its tests pass. |
 | Claude Code | Usage limit hit mid-task | Tasks are sized to finish within a session, and the progress log means nothing is lost when a limit hits. |
@@ -527,7 +544,7 @@ The failures that matter most are the recorder silently stopping, a backtest tha
 | Cost | Costs creep up | Monthly cost check, an R2 storage budget, and any Tardis subscription cancelled straight after the download. |
 | Legal | Vendor data published by mistake | Raw Tardis files are never committed or published, only results. |
 | People | JEV turns out hard to integrate | Fixed rules ship regardless. Any selector sits behind the same interface, as a challenger. |
-| People | Keys from the old site still active | Any API keys created for the old site are revoked before Phase 0 ends. |
+| People | Keys from the old site still active | No old-site key is reused; any key this project needs is made fresh (decided 14 November). |
 | Schedule | A four-week build squeezes testing | Gates never get skipped to save time. If a gate fails, the schedule moves, not the standard. |
 | Expectations | The rough week-1 version shows profits that come from a bug, not an edge | The week-1 version is labelled rough. No result counts until the Phase 4 fill, fee and accounting tests pass. |
 
@@ -591,7 +608,7 @@ Answer these in the doc or in chat. Once they're settled and setup is done, we e
 
 - [x] Claude plan: decided 9 November. Staying on Pro for now, upgrading if usage limits slow the build.
 - [ ] JEV: you research it first. Prompt 7 needs its inputs and outputs, whether the same inputs always give the same answer, speed and cost per call, how and on what dates it was trained, and whether you can run it yourself. It's needed by week 4 and doesn't hold up the start.
-- [ ] Start: setup steps 1 to 8 are done (9 November). Next, copy this brief into the repo as `docs/brief.md` and paste Prompt 0.
+- [x] Start: done. This brief went into the repo as `docs/brief.md` and Prompt 0 was pasted on 9 November. Phase 0 passed on 10 November, and the recorder went live on 13 November.
 
 ---
 
@@ -721,7 +738,7 @@ Phase 4: Backtest engine. Read CLAUDE.md, docs/brief.md, docs/progress.md, docs/
 1. Event loop over point-in-time snapshots: for each snapshot, build MarketState, call the strategy, send orders through the risk gateway, fill them, update positions and the ledger, and record equity.
 2. Fills: cross the spread at top of book, with partial fills beyond the quoted size. Fees come from configs/fees, including the premium cap. Spreads fill leg by leg, each at its own bid or ask.
 3. Risk gateway: every limit from configs/risk, matching the brief's sizing and limits table. Reject any order that breaches a limit and log each rejection in risk_events. Nothing reaches a fill without passing the gateway.
-4. Double-entry ledger in exact decimals; settlement at Deribit's delivery price at 08:00 UTC, including the two-step USDC settlement; perp trading and funding for the hedged benchmarks.
+4. Double-entry ledger in exact decimals; settlement at Deribit's delivery price at 08:00 UTC, including the two-step settlement through the expiry's future (see Settlement in docs/brief.md: same payoff, one delivery fee per in-the-money leg); perp trading and funding for the hedged benchmarks.
 5. Run records: config (YAML loaded into Pydantic), git commit, dataset hash and seed saved with every run; results tables backtest_runs, backtest_orders, backtest_fills, backtest_positions and backtest_equity; MLflow logging. Backtests run on my laptop from data synced from R2.
 6. Tests: determinism (the same config twice gives identical result hashes); leakage (changing data after t leaves decisions at t unchanged); reconciliation (option, hedge, fee and funding P&L sum to the change in equity at every step); and a smoke trade, one ATM call held to expiry, that we check by hand together.
 

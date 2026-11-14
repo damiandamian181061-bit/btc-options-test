@@ -5,7 +5,7 @@ directly. ``ts`` columns are timezone-aware UTC datetimes (TimescaleDB partition
 exchange and receive times stay as integer UTC milliseconds.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import NamedTuple
 
 from optlab.domain.clock import ms_to_datetime
@@ -79,6 +79,23 @@ class OptionTradeRow(NamedTuple):
     combo_id: str | None
     exchange_ts_ms: int
     recv_ts_ms: int
+
+
+class RecorderStatusRow(NamedTuple):
+    ts: datetime
+    run_id: str
+    started_ms: int
+    rss_bytes: int | None  # resident memory now
+    peak_rss_bytes: int | None  # highest resident memory of this run
+    connections_up: int
+    connections: int
+    channels: int
+    msgs_per_s: float
+    last_option_rows: int
+    db_jobs_waiting: int
+    decode_errors: int
+    raw_day: date  # UTC day the raw stream is writing
+    raw_bytes_day: int  # bytes of raw files for raw_day so far
 
 
 def option_quote_row(ts_ms: int, instrument: Instrument, t: Ticker) -> OptionQuoteRow:

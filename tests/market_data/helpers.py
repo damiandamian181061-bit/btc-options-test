@@ -17,7 +17,7 @@ from optlab.domain.market import (
 from optlab.market_data.deribit.client import DeribitClient
 from optlab.market_data.deribit.convert import instrument_from_wire
 from optlab.market_data.deribit.wire import INSTRUMENTS
-from optlab.market_data.rows import OptionTradeRow
+from optlab.market_data.rows import OptionTradeRow, RecorderStatusRow
 from optlab.market_data.snapshot import Snapshot
 from tests.market_data.fake_deribit import load_instruments
 
@@ -92,6 +92,7 @@ class MemoryStore:
     delisted: list[str] = field(default_factory=list)
     delivery: list[DeliveryPrice] = field(default_factory=list)
     events: list[ConnectionEvent] = field(default_factory=list)
+    status: list[RecorderStatusRow] = field(default_factory=list)
     fail_next: int = 0
     resets: int = 0
 
@@ -128,6 +129,10 @@ class MemoryStore:
     async def write_connection_events(self, events: Sequence[ConnectionEvent]) -> None:
         self._maybe_fail()
         self.events.extend(events)
+
+    async def write_status(self, row: RecorderStatusRow) -> None:
+        self._maybe_fail()
+        self.status.append(row)
 
     async def reset(self) -> None:
         self.resets += 1

@@ -19,12 +19,17 @@ from psycopg import sql
 
 from optlab.domain.clock import ms_to_datetime
 from optlab.domain.market import ConnectionEvent, DeliveryPrice, Instrument
-from optlab.market_data.rows import OptionQuoteRow, OptionTradeRow, UnderlyingTickRow
+from optlab.market_data.rows import (
+    OptionQuoteRow,
+    OptionTradeRow,
+    RecorderStatusRow,
+    UnderlyingTickRow,
+)
 from optlab.market_data.snapshot import Snapshot
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_REVISION = "0001"
+SCHEMA_REVISION = "0002"
 
 _INSTRUMENT_COLUMNS = (
     "instrument_name",
@@ -227,6 +232,14 @@ class RecorderStore:
                 )
                 inserted += max(cur.rowcount, 0)
         return inserted
+
+    async def write_status(self, row: RecorderStatusRow) -> None:
+        cols = sql.SQL(", ").join(map(sql.Identifier, RecorderStatusRow._fields))
+        placeholders = sql.SQL(", ").join(sql.Placeholder() * len(RecorderStatusRow._fields))
+        conn = await self._connection()
+        async with conn.transaction(), conn.cursor() as cur:
+            query = sql.SQL("INSERT INTO recorder_status ({}) VALUES ({}) ON CONFLICT DO NOTHING")
+            await cur.execute(query.format(cols, placeholders), row)
 
     async def write_connection_events(self, events: Sequence[ConnectionEvent]) -> None:
         if not events:

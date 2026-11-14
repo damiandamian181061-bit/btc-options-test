@@ -3,9 +3,10 @@
 .env.*
 !.env.example
 
-# Market data lives on the server and in R2, never in git.
+# Market data lives on the server and in R2, never in git; nor do database dumps.
 data/
 *.parquet
+backups/
 
 # Python and tooling
 __pycache__/

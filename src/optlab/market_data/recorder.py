@@ -11,6 +11,10 @@ What it does, in order:
 4. Fetches delivery prices at start-up and several times after each 08:00 UTC expiry.
 5. Records every connect, disconnect and reconnect in ``connection_events``.
 6. Writes every best bid/ask change and every option trade to hourly Parquet files.
+7. Once a minute, logs a status line and stores it in ``recorder_status``: connections, message
+   rate, memory, and the bytes of raw files written so far for the UTC day. A day passing the
+   raw-stream warning level (1 GB, decided 14 Nov) logs a warning once; nothing is thinned or
+   dropped.
 
 Database writes go through one queue and one writer task. If the database is unreachable, the
 writer retries with backoff while new work queues up (up to ``max_pending_jobs``; beyond that
@@ -22,6 +26,7 @@ import logging
 from collections import deque
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Protocol
 
@@ -32,6 +37,7 @@ from optlab.domain.clock import (
     Clock,
     SystemClock,
     floor_ms,
+    ms_to_datetime,
 )
 from optlab.domain.market import (
     ConnectionEvent,
@@ -54,7 +60,7 @@ from optlab.market_data.raw_stream import (
     quote_record,
     trade_record,
 )
-from optlab.market_data.rows import OptionTradeRow, option_trade_row
+from optlab.market_data.rows import OptionTradeRow, RecorderStatusRow, option_trade_row
 from optlab.market_data.sink import MarketDataSink
 from optlab.market_data.snapshot import LatestState, Snapshot, take_snapshot
 from optlab.market_data.universe import (
@@ -87,6 +93,8 @@ class RecorderStoreLike(Protocol):
     ) -> int: ...
 
     async def write_connection_events(self, events: Sequence[ConnectionEvent]) -> None: ...
+
+    async def write_status(self, row: RecorderStatusRow) -> None: ...
 
     async def reset(self) -> None: ...
 
@@ -133,6 +141,7 @@ class RecorderConfig:
     max_pending_jobs: int = 240
     unknown_trade_max_age_ms: int = 15 * MS_PER_MINUTE
     min_option_fraction: float = 0.5  # refuse a discovery that loses more than half the options
+    raw_daily_warn_bytes: int = 1_000_000_000  # warning level only: data is never dropped
 
     @property
     def raw_dir(self) -> Path:
@@ -192,6 +201,8 @@ class Recorder(MarketDataSink):
         self._jobs: deque[_Job] = deque()
         self._job_ready = asyncio.Event()
         self._refusals = 0
+        self._started_ms = self._clock.now_ms()
+        self._raw_warned: set[date] = set()
         self.stats = RecorderStats()
         self.raw_quotes = HourlyParquetStream(config.raw_dir, QUOTES, QUOTE_SCHEMA, run_id)
         self.raw_trades = HourlyParquetStream(config.raw_dir, TRADES, TRADE_SCHEMA, run_id)
@@ -509,19 +520,94 @@ class Recorder(MarketDataSink):
             messages = self._client.messages
             rate = (messages - last_messages) / self._config.status_log_s
             last_messages = messages
-            logger.info(
-                "status: %d/%d connections up, %d channels, %.0f msg/s, last snapshot %d option "
-                "rows, %d db jobs waiting, raw buffered %d quotes %d trades, decode errors %d",
-                self._client.connected,
-                self._client.connections,
-                len(self._client.channels),
-                rate,
-                self.stats.last_option_rows,
-                len(self._jobs),
-                self.raw_quotes.buffered,
-                self.raw_trades.buffered,
-                self._client.decode_errors,
+            await self.report_status(rate)
+
+    async def report_status(self, msgs_per_s: float) -> RecorderStatusRow:
+        """Log the status line, warn about raw volume, and queue the recorder_status row."""
+        now = self._clock.now_ms()
+        rss, peak = process_memory()
+        raw_day = ms_to_datetime(now).date()
+        raw_bytes = await asyncio.to_thread(raw_bytes_for_day, self._config.raw_dir, raw_day)
+        logger.info(
+            "status: %d/%d connections up, %d channels, %.0f msg/s, last snapshot %d option "
+            "rows, %d db jobs waiting, raw buffered %d quotes %d trades, decode errors %d, "
+            "memory %s (peak %s), raw files today %.0f MB",
+            self._client.connected,
+            self._client.connections,
+            len(self._client.channels),
+            msgs_per_s,
+            self.stats.last_option_rows,
+            len(self._jobs),
+            self.raw_quotes.buffered,
+            self.raw_trades.buffered,
+            self._client.decode_errors,
+            _mib(rss),
+            _mib(peak),
+            raw_bytes / 1e6,
+        )
+        if raw_bytes >= self._config.raw_daily_warn_bytes and raw_day not in self._raw_warned:
+            self._raw_warned.add(raw_day)
+            logger.warning(
+                "raw stream: %s has reached %.2f GB, above the %.2f GB daily warning level; "
+                "all data is kept",
+                raw_day,
+                raw_bytes / 1e9,
+                self._config.raw_daily_warn_bytes / 1e9,
             )
+        row = RecorderStatusRow(
+            ts=ms_to_datetime(now),
+            run_id=self.run_id,
+            started_ms=self._started_ms,
+            rss_bytes=rss,
+            peak_rss_bytes=peak,
+            connections_up=self._client.connected,
+            connections=self._client.connections,
+            channels=len(self._client.channels),
+            msgs_per_s=msgs_per_s,
+            last_option_rows=self.stats.last_option_rows,
+            db_jobs_waiting=len(self._jobs),
+            decode_errors=self._client.decode_errors,
+            raw_day=raw_day,
+            raw_bytes_day=raw_bytes,
+        )
+        self._enqueue(_Job("status", lambda s: s.write_status(row)))
+        return row
+
+
+def _mib(nbytes: int | None) -> str:
+    return "?" if nbytes is None else f"{nbytes / 2**20:.0f} MiB"
+
+
+def process_memory(status_path: Path = Path("/proc/self/status")) -> tuple[int | None, int | None]:
+    """This process's resident memory now and at its peak, in bytes (None if unknown).
+
+    Read from Linux's ``VmRSS`` and ``VmHWM`` lines, which are in kB.
+    """
+    try:
+        text = status_path.read_text(encoding="ascii")
+    except OSError:
+        return None, None
+    values: dict[str, int] = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(":")
+        if key in ("VmRSS", "VmHWM"):
+            values[key] = int(rest.split()[0]) * 1024
+    return values.get("VmRSS"), values.get("VmHWM")
+
+
+def raw_bytes_for_day(raw_dir: Path, day: date) -> int:
+    """Bytes on disk of every raw file (finished or in progress) for one UTC day."""
+    total = 0
+    for stream in (QUOTES, TRADES):
+        folder = raw_dir / stream / day.isoformat()
+        if not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            try:
+                total += path.stat().st_size
+            except FileNotFoundError:  # renamed between listing and stat
+                continue
+    return total
 
 
 def next_delivery_check_ms(now_ms: int) -> int:

@@ -2,10 +2,12 @@
 #   infra/dc up -d --build      start everything, or rebuild and restart what changed
 #   infra/dc ps                 status
 #   infra/dc logs -f recorder   follow the recorder's log
-# infra/dc refuses "config", which would print DATABASE_URL with its password.
+# infra/dc refuses "config", which would print DATABASE_URL with its password. For the same
+# reason, never run "docker inspect" on these containers: it shows their environment.
 #
-# No service publishes a port, so nothing here can be reached from the internet. Every service
-# restarts after a crash or a reboot unless it was stopped by hand.
+# Only the dashboard publishes a port, and only on the server's own 127.0.0.1, so it is reached
+# through an SSH tunnel and never from the internet (the cloud firewall allows SSH only, too).
+# Every service restarts after a crash or a reboot unless it was stopped by hand.
 name: optlab
 
 x-app: &app
@@ -91,6 +93,49 @@ services:
     volumes:
       - ../data:/app/data:ro
     mem_limit: 256m
+
+  # Data checks every hour, and the nightly R2 backup (optlab-data scheduler).
+  jobs:
+    <<: *app
+    command: ["optlab-data", "scheduler"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      LIVE_TRADING: ${LIVE_TRADING:-false}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      DERIBIT_ENV: ${DERIBIT_ENV:-public}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      HC_PING_URL_BACKUP: ${HC_PING_URL_BACKUP:-}
+      OPTLAB_DATA_DIR: /app/data
+      HOME: /tmp
+    volumes:
+      - ../data:/app/data
+    mem_limit: 1g
+    stop_grace_period: 30s
+
+  # The Phase 2 status page. Read-only database connection; localhost-only port.
+  dashboard:
+    <<: *app
+    command:
+      - streamlit
+      - run
+      - apps/dashboard/status.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+      - --server.fileWatcherType=none
+      - --browser.gatherUsageStats=false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      LIVE_TRADING: ${LIVE_TRADING:-false}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      DERIBIT_ENV: ${DERIBIT_ENV:-public}
+      HOME: /tmp
+    ports:
+      - "127.0.0.1:8501:8501"
+    mem_limit: 512m
 
 volumes:
   pgdata:

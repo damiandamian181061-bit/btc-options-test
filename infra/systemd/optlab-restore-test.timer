@@ -1,0 +1,11 @@
+# Runs the restore test once a month: the 1st, 03:00 UTC (caught up after downtime).
+[Unit]
+Description=Monthly btc-options-lab restore test
+
+[Timer]
+OnCalendar=*-*-01 03:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

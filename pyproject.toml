@@ -8,10 +8,13 @@ authors = [{ name = "Damian Craddock" }]
 dependencies = [
     "alembic>=1.20.1",
     "msgspec>=0.22.0",
+    "numpy>=2.5.4",
+    "pandas==3.1.0",
     "psycopg[binary]>=3.3.9",
     "pyarrow>=26.0.1",
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
     "sqlalchemy>=2.1.8",
     "websockets>=17.4",
 ]
@@ -19,6 +22,7 @@ dependencies = [
 [project.scripts]
 optlab-recorder = "optlab.market_data.service:recorder_main"
 optlab-health = "optlab.market_data.service:health_main"
+optlab-data = "optlab.market_data.jobs:main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14"]
@@ -26,6 +30,10 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "optlab"
+
+[tool.uv]
+# The Streamlit dashboard's dependencies install with everything else (CI tests them).
+default-groups = ["dev", "dashboard"]
 
 [tool.ruff]
 line-length = 100
@@ -63,8 +71,8 @@ warn_unreachable = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# pyarrow ships without type stubs.
-module = ["pyarrow", "pyarrow.*"]
+# pyarrow and pandas ship without type stubs.
+module = ["pyarrow", "pyarrow.*", "pandas", "pandas.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -90,6 +98,9 @@ markers = [
 ]
 
 [dependency-groups]
+dashboard = [
+    "streamlit==1.66.1",
+]
 dev = [
     "mypy>=2.4.1",
     "pre-commit>=4.7.0",

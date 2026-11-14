@@ -40,6 +40,7 @@ class ServiceSettings(BaseSettings):
     max_channels_per_connection: int = 400
     heartbeat_s: int = 10
     snapshot_max_age_s: int = 300
+    raw_daily_warn_bytes: int = 1_000_000_000
     log_level: str = "INFO"
 
 
@@ -92,6 +93,7 @@ async def run_recorder(settings: Settings, service: ServiceSettings) -> None:
         data_dir=service.data_dir,
         ticker_interval=service.ticker_interval,
         max_age_ms=service.snapshot_max_age_s * MS_PER_SECOND,
+        raw_daily_warn_bytes=service.raw_daily_warn_bytes,
     )
 
     def make_client(sink: MarketDataSink) -> DeribitClient:

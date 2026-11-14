@@ -2,11 +2,13 @@
 fake server including a disconnect."""
 
 import asyncio
+import logging
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import pyarrow.parquet as pq
+import pytest
 
 from optlab.domain.market import (
     ConnectionEventKind,
@@ -18,7 +20,12 @@ from optlab.domain.market import (
     Ticker,
     Trade,
 )
-from optlab.market_data.recorder import Recorder, RecorderConfig, next_delivery_check_ms
+from optlab.market_data.recorder import (
+    Recorder,
+    RecorderConfig,
+    next_delivery_check_ms,
+    process_memory,
+)
 from optlab.market_data.sink import MarketDataSink
 from optlab.market_data.universe import build_universe
 from tests.market_data.fake_deribit import FakeDeribit
@@ -305,3 +312,45 @@ async def test_full_run_against_the_fake_server(tmp_path: Path) -> None:
     names = set(pq.read_table(quotes[0]).column("instrument_name").to_pylist())
     assert "BTC-PERPETUAL" in names
     assert sum(pq.read_table(p).num_rows for p in trades) == 2
+
+
+async def test_status_row_carries_memory_and_raw_bytes_for_the_day(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    clock = ManualClock(T)
+    rec, store, _ = make_recorder(tmp_path, clock, raw_daily_warn_bytes=1_000)
+    day = "2026-11-12"  # T is 2026-11-12 in UTC
+    for stream, size in (("quotes", 700), ("trades", 200)):
+        folder = tmp_path / "raw" / stream / day
+        folder.mkdir(parents=True)
+        (folder / f"{stream}_{day}T10_x.parquet").write_bytes(b"x" * size)
+    (tmp_path / "raw" / "quotes" / "2026-11-11").mkdir()
+    (tmp_path / "raw" / "quotes" / "2026-11-11" / "old.parquet").write_bytes(b"x" * 5_000)
+
+    with caplog.at_level(logging.WARNING):
+        row = await rec.report_status(12.0)
+    assert row.raw_day == date(2026, 11, 12)
+    assert row.raw_bytes_day == 900  # only today's files count
+    assert row.run_id == "test"
+    assert row.started_ms == T
+    assert row.msgs_per_s == 12.0
+    assert row.rss_bytes is None or row.rss_bytes > 1_000_000
+    assert not [r for r in caplog.records if "warning level" in r.getMessage()]
+
+    (tmp_path / "raw" / "trades" / day / "more.parquet.inprogress").write_bytes(b"x" * 200)
+    with caplog.at_level(logging.WARNING):
+        row = await rec.report_status(12.0)
+        await rec.report_status(12.0)  # warned once per day, not every minute
+    assert row.raw_bytes_day == 1_100
+    warnings = [r for r in caplog.records if "warning level" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "all data is kept" in warnings[0].getMessage()
+    await write_all(rec)
+    assert [s.raw_bytes_day for s in store.status] == [900, 1_100, 1_100]
+
+
+def test_process_memory_reads_rss_and_peak(tmp_path: Path) -> None:
+    status = tmp_path / "status"
+    status.write_text("Name:\tpython\nVmHWM:\t  425000 kB\nVmRSS:\t  387000 kB\n", encoding="ascii")
+    assert process_memory(status) == (387_000 * 1024, 425_000 * 1024)
+    assert process_memory(tmp_path / "missing") == (None, None)

@@ -396,6 +396,85 @@ hour cut short by a crash, which cannot be read.
 has rows from the last 2 minutes, and `HC_PING_URL_DISK` every 10 minutes with how full the disk
 is (failure pings marked WARNING at 70% and CRITICAL at 85%).
 
+## 15. Data platform: backups, checks, restore test, status page (Phase 2)
+
+Two more services run from the same image: `jobs` (`optlab-data scheduler`) and `dashboard`
+(the Streamlit status page). `jobs` is the only service that gets the four `R2_` variables and
+`HC_PING_URL_BACKUP`; its rclone remote exists only in the environment of each rclone process,
+built from those variables, with no config file (`--config ""`). Never run `infra/dc config`,
+`docker inspect`, `env`, `printenv` or `rclone config show` on the server: each would print
+secrets.
+
+**What `jobs` does** (UTC):
+
+- every hour at :05, the data checks of every finished hour not yet checked, into
+  `data_quality` and `data_quality_runs`;
+- at 00:30, the backup: data checks first, then every finished day not yet verified in R2 is
+  exported to `data/exports/v1/` (zstd Parquet + manifest), its raw files and export uploaded,
+  every file checked against R2 (size and MD5), the manifests uploaded last, and the day
+  recorded in `dataset_exports`. Then the server's raw and export files of days more than 7
+  days old are removed, but only files listed in a manifest and found again in R2 just
+  before. A success pings `HC_PING_URL_BACKUP`; a failure sends a failure ping and the
+  backup is retried every hour.
+- On start-up it runs both once, so a restart catches up.
+
+**R2 layout** (bucket `btc-options-backup`): `raw/quotes/DAY/`, `raw/trades/DAY/` and
+`raw/manifests/DAY.json` for the raw stream (kept 18 months); `exports/v1/TABLE/date=DAY/...`
+and `exports/v1/manifests/DAY.json` for the database exports (kept for good). The R2 token has
+Object Read & Write only, so it cannot set lifecycle rules: the 18-month rule is added by hand
+in the Cloudflare dashboard (R2, the bucket, Settings, Object lifecycle rules): prefix `raw/`,
+delete objects 548 days after upload.
+
+**Deploy** (from `/srv/btc-options-lab`; migration `0002` adds tables, so back up first):
+
+```bash
+git pull --ff-only
+infra/dc build                                          # the image, now with rclone and Streamlit
+mkdir -p backups
+infra/dc exec -T db pg_dump -U optlab -d optlab -Fc </dev/null > "backups/pre-migration-$(date -u +%Y%m%dT%H%MZ).dump"
+ls -lh backups/                                         # the dump exists and is not empty
+infra/dc run --rm recorder alembic -c infra/alembic.ini upgrade head </dev/null
+infra/dc up -d recorder health dashboard               # just after a minute boundary
+infra/dc run --rm jobs optlab-data backup </dev/null   # first backup by hand, then:
+infra/dc up -d jobs
+```
+
+**Gap report and checks by hand:**
+
+```bash
+infra/dc run --rm jobs optlab-data gap-report </dev/null
+infra/dc run --rm jobs optlab-data checks --hour 2026-11-13T21:00 </dev/null   # re-check an hour
+```
+
+**Restore test.** `infra/restore-test [DAY]` starts its own Compose project,
+`optlab-restore-test` (`infra/restore-test.compose.yaml`): a throwaway TimescaleDB with its own
+volume and a 1 GB memory limit, plus the restore job. It refuses any database that already
+has tables, downloads the day from R2, checks every file's SHA-256, loads it, and compares
+each table's row count and checksum with the manifest. On exit it removes that project's
+containers, network and volume, and nothing else. It runs monthly through a systemd timer:
+
+```bash
+infra/restore-test 2026-11-13                           # by hand: prints PASS or FAIL per table
+sudo cp infra/systemd/optlab-restore-test.service infra/systemd/optlab-restore-test.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now optlab-restore-test.timer
+systemctl list-timers optlab-restore-test.timer         # next run: the 1st of the month, 03:00 UTC
+journalctl -u optlab-restore-test.service               # the last run's report
+```
+
+**Status page.** `dashboard` listens on the server's 127.0.0.1:8501 only. From the laptop:
+
+```bash
+ssh -N -L 8501:127.0.0.1:8501 deploy@SERVER_IP          # leave running, then open http://localhost:8501
+```
+
+Its database connection is read-only (`default_transaction_read_only`), so the page cannot
+change anything.
+
+**On the laptop**, `uv run optlab-data sync 2026-11-13 2026-11-14` (or `--from`/`--to`,
+`--list`, `--raw`) pulls exported days into `data/exports/v1/` for backtests. It needs
+`rclone` (`sudo apt install rclone`) and the four `R2_` lines in the laptop's own `.env`.
+
 ## If you are locked out
 
 1. **Droplet Console** (Droplet page → **Access → Launch Droplet Console**). It runs through

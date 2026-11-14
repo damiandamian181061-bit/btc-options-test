@@ -1,0 +1,14 @@
+# The restore test (infra/restore-test), started by optlab-restore-test.timer.
+# Install: see infra/server-setup.md section 15.
+[Unit]
+Description=btc-options-lab restore test: rebuild a day from R2 in a throwaway database
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/srv/btc-options-lab
+ExecStart=/srv/btc-options-lab/infra/restore-test
+TimeoutStartSec=2h

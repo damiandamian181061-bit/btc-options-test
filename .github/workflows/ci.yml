@@ -35,8 +35,16 @@ jobs:
     env:
       OPTLAB_TEST_DATABASE_URL: postgresql://optlab_ci:ci-only-not-a-secret@localhost:5432/optlab_ci
       OPTLAB_REQUIRE_DB_TESTS: "1"  # fail, rather than skip, if the database is missing
+      OPTLAB_REQUIRE_RCLONE_TESTS: "1"  # the same for rclone (backup and restore tests)
     steps:
       - uses: actions/checkout@v7
+
+      - name: Install rclone from the same pinned image the server uses
+        run: |
+          id=$(docker create rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5)
+          sudo docker cp "$id":/usr/local/bin/rclone /usr/local/bin/rclone
+          docker rm "$id"
+          rclone version | head -1
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -75,8 +83,17 @@ jobs:
 
       - name: The image refuses live trading
         run: |
-          out=$(docker run --rm -e LIVE_TRADING=true optlab:ci optlab-recorder 2>&1 || true)
-          echo "$out" | grep -q "LIVE_TRADING=true is refused"
+          for cmd in optlab-recorder "optlab-data gap-report"; do
+            out=$(docker run --rm -e LIVE_TRADING=true optlab:ci $cmd 2>&1 || true)
+            echo "$out" | grep -q "LIVE_TRADING=true is refused"
+          done
+
+      - name: The image has rclone, the jobs command and the dashboard
+        run: |
+          docker run --rm optlab:ci rclone version | head -1
+          docker run --rm optlab:ci optlab-data --help | grep -q restore-test
+          docker run --rm optlab:ci python -c "import streamlit, optlab.market_data.status"
+          docker run --rm optlab:ci test -f apps/dashboard/status.py -a -f configs/data_quality.yaml
 
   secret-scan:
     name: Secret scan (gitleaks, full history)

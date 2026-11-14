@@ -174,6 +174,50 @@ async def test_heartbeat_close_code_is_recorded() -> None:
             await conn.stop()
 
 
+@pytest.mark.parametrize(
+    ("rcvd", "sent", "rcvd_then_sent", "expected"),
+    [
+        (None, None, None, "connection closed without a close frame (none sent or received"),
+        ((4000, "heartbeat"), (4000, ""), True, "closed by server: code 4000 (heartbeat not"),
+        ((1001, "going away"), None, None, "closed by server: code 1001 going away"),
+        (None, (1011, "keepalive ping timeout"), None, "closed by us: sent code 1011 keepalive"),
+        ((1000, ""), (1000, "bye"), False, "closed by us: sent code 1000 bye; server answered"),
+    ],
+)
+def test_disconnects_say_which_side_closed(
+    rcvd: tuple[int, str] | None,
+    sent: tuple[int, str] | None,
+    rcvd_then_sent: bool | None,
+    expected: str,
+) -> None:
+    from websockets.exceptions import ConnectionClosedError
+    from websockets.frames import Close
+
+    from optlab.market_data.deribit.connection import _describe
+
+    exc = ConnectionClosedError(
+        None if rcvd is None else Close(*rcvd),
+        None if sent is None else Close(*sent),
+        rcvd_then_sent,
+    )
+    assert _describe(exc).startswith(expected)
+
+
+async def test_a_dropped_tcp_connection_is_described_as_such() -> None:
+    probe = Probe()
+    async with FakeDeribit() as server:
+        conn = probe.connection(server.url)
+        conn.start()
+        try:
+            await conn.wait_connected(5)
+            await server.drop_all()
+            await wait_until(lambda: "disconnected" in probe.kinds())
+            detail = next(e.detail for e in probe.events if e.kind.value == "disconnected")
+            assert "none sent or received" in detail
+        finally:
+            await conn.stop()
+
+
 async def test_silence_means_a_dead_connection() -> None:
     probe = Probe()
     async with FakeDeribit() as server:

@@ -76,13 +76,34 @@ EventHandler = Callable[[ConnectionEvent], None]
 ChannelsHandler = Callable[[str, frozenset[str]], None]
 
 
+def _close_frame(code: int, reason: str) -> str:
+    label = " (heartbeat not answered)" if code == HEARTBEAT_CLOSE_CODE else ""
+    return f"code {code}{label} {reason}".strip()
+
+
 def _describe(exc: BaseException) -> str:
+    """Why a connection ended, including which side closed it.
+
+    A WebSocket close is a handshake: one side sends a close frame and the other answers. The
+    library records the frame received (``rcvd``), the frame sent (``sent``) and which came
+    first. With neither, the TCP connection simply ended: the server, a router or the network
+    dropped it. With only ``sent``, we closed it (for example the library's own keepalive
+    timeout, which sends 1011) and got no answer.
+    """
     if isinstance(exc, ConnectionClosed):
-        frame = exc.rcvd
-        if frame is None:
-            return "connection closed without a close frame"
-        label = " (heartbeat not answered)" if frame.code == HEARTBEAT_CLOSE_CODE else ""
-        return f"closed by server: code {frame.code}{label} {frame.reason}".strip()
+        rcvd, sent = exc.rcvd, exc.sent
+        if sent is not None and (rcvd is None or not exc.rcvd_then_sent):
+            text = f"closed by us: sent {_close_frame(sent.code, sent.reason)}"
+            if rcvd is None:
+                return text + "; no answer from the server"
+            return text + f"; server answered {rcvd.code}"
+        if rcvd is not None:
+            text = f"closed by server: {_close_frame(rcvd.code, rcvd.reason)}"
+            return text + ("" if sent is None else f"; we answered {sent.code}")
+        return (
+            "connection closed without a close frame (none sent or received: the TCP "
+            "connection ended)"
+        )
     text = str(exc)
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 

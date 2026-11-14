@@ -1,0 +1,25 @@
+# Hourly data-quality checks (Phase 2): optlab.market_data.quality.
+# Proposed 14 Nov 2026 from the first 30 hours of recording; Damian to confirm or change.
+# A finding marked "skip" removes those snapshot minutes from backtests.
+
+# partial_snapshot (skip): a minute with option rows for fewer than this share of the options
+# listed at that minute. Normal minutes have 100%; the one bad minute so far had 75%.
+partial_snapshot_fraction: 0.98
+
+# stale_quote: an option row whose last ticker from Deribit is older than this at the snapshot.
+# Matches the v1 liquidity rule "quotes under 2 minutes old".
+stale_quote_s: 120
+
+# iv_outlier: mark IV missing or outside [iv_min, iv_max] (decimals), or moving more than
+# iv_jump in one minute for an option with at least iv_jump_min_days to expiry. Day one ranged
+# 0.18 to 1.32 and had no jump over 0.10.
+iv_min: 0.05
+iv_max: 5.0
+iv_jump: 0.10
+iv_jump_min_days: 2
+
+# stale_index (skip): an index missing at a snapshot minute, older than index_stale_s, or
+# unchanged for index_flat_minutes minutes in a row. Day one: never older than 5 s.
+index_stale_s: 60
+index_flat_minutes: 5
+indexes: [btc_usd, btc_usdc]

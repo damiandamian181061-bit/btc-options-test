@@ -1,0 +1,26 @@
+#!/bin/sh
+# Restore test: rebuild one day from R2 into a throwaway TimescaleDB and compare its row counts
+# and checksums with the day's manifest. Monthly by systemd (infra/systemd/), or by hand:
+#   infra/restore-test               the latest day in R2
+#   infra/restore-test 2026-11-13    a chosen UTC day
+# It runs as its own Compose project (infra/restore-test.compose.yaml) with its own container,
+# volume and memory limits, and never touches the live db. On exit it removes only what it
+# created: that project's containers, network and volume. A failure pings HC_PING_URL_BACKUP.
+set -eu
+cd "$(dirname "$0")/.."
+
+# A password for the throwaway database only, generated here and never shown or stored.
+RESTORE_DB_PASSWORD=$(openssl rand -hex 24)
+export RESTORE_DB_PASSWORD
+
+rt() { docker compose --env-file .env -f infra/restore-test.compose.yaml "$@"; }
+cleanup() { rt down --volumes --remove-orphans </dev/null >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+if ! rt up --detach --wait restore-db </dev/null; then
+    rt run --rm --no-deps restore optlab-data notify-failure \
+        "restore test: the throwaway database did not start" </dev/null || true
+    exit 1
+fi
+rt run --rm restore optlab-data restore-test ${1:+--day "$1"} </dev/null
