@@ -9,6 +9,11 @@ For each recorded day before today that is not yet verified in R2:
    A manifest in R2 therefore always means every file it lists is there;
 5. record the day in ``dataset_exports`` with its dataset version.
 
+The backup only ever adds to R2 (see ``r2``: uploads are ``--immutable``, and no command that
+deletes or moves objects can run). If R2 already holds a manifest for the day with different
+content (for example a re-run for a day whose raw files were already removed from the server),
+the backup stops before uploading anything rather than replace it.
+
 Afterwards, the server's own raw and export files for days more than 7 days old are removed,
 but only files listed in a manifest and found again in R2 with the same size and MD5 just
 before (decided by Damian on 14 Nov: 7 days of raw files on the server, older ones only in R2).
@@ -101,6 +106,26 @@ def back_up_day(
     raw = raw_manifest(raw_dir, day, now_ms=now_ms)
     export_files = [f["path"] for f in manifest_files(manifest)]
     raw_files = [f["path"] for f in raw["files"]]
+    remote_manifest = f"{EXPORTS_PREFIX}/manifests/{day.isoformat()}.json"
+    remote_raw_manifest = f"{RAW_PREFIX}/{RAW_MANIFESTS}/{day.isoformat()}.json"
+
+    # Never replace what R2 already holds for this day; an identical copy is reused.
+    old_export = rclone.get(remote_manifest)
+    if old_export is not None:
+        old_version = read_manifest(old_export)["dataset_version"]
+        if old_version != manifest["dataset_version"]:
+            raise BackupError(
+                f"{day}: R2 already holds a different export of this day (version "
+                f"{old_version[:12]}, now {manifest['dataset_version'][:12]}); nothing was "
+                "uploaded: the backup never replaces data in R2"
+            )
+    old_raw = rclone.get(remote_raw_manifest)
+    if old_raw is not None and _raw_key(json.loads(old_raw)) != _raw_key(raw):
+        raise BackupError(
+            f"{day}: R2 already holds a different list of raw files for this day "
+            f"({len(json.loads(old_raw)['files'])} files there, {len(raw_files)} here); nothing "
+            "was uploaded: the backup never replaces data in R2"
+        )
 
     rclone.upload(raw_dir, RAW_PREFIX, raw_files)
     rclone.verify(raw_dir, RAW_PREFIX, raw_files)
@@ -110,10 +135,15 @@ def back_up_day(
     raw_manifest_file = raw_dir / RAW_MANIFESTS / f"{day.isoformat()}.json"
     raw_manifest_file.parent.mkdir(parents=True, exist_ok=True)
     raw_manifest_file.write_bytes(json.dumps(raw, indent=1, sort_keys=True).encode() + b"\n")
-    rclone.put(raw_manifest_file, f"{RAW_PREFIX}/{RAW_MANIFESTS}/{day.isoformat()}.json")
     local_manifest = manifest_path(export_root, day)
-    remote_manifest = f"{EXPORTS_PREFIX}/manifests/{day.isoformat()}.json"
-    rclone.put(local_manifest, remote_manifest)
+    for local, remote, old in (
+        (raw_manifest_file, remote_raw_manifest, old_raw),
+        (local_manifest, remote_manifest, old_export),
+    ):
+        if old is None:
+            rclone.put(local, remote)
+        else:
+            local.write_bytes(old)  # the same content is already in R2: keep R2's copy
     if rclone.get(remote_manifest) != local_manifest.read_bytes():
         raise BackupError(f"{day}: the manifest read back from R2 differs from the local one")
 
@@ -149,6 +179,10 @@ def back_up_day(
         )
     logger.info("backed up %s", result.describe())
     return result
+
+
+def _raw_key(raw: dict[str, Any]) -> list[tuple[str, str]]:
+    return sorted((f["path"], f["sha256"]) for f in raw["files"])
 
 
 def prune_local(

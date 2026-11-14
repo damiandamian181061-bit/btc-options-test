@@ -11,6 +11,15 @@ rclone must not try to create or inspect the bucket (Cloudflare's rclone guide).
 
 Bucket layout: ``raw/`` holds the raw stream (kept 18 months, by an R2 lifecycle rule),
 ``exports/`` the database exports (kept for good).
+
+R2 only ever grows from here. ``Rclone.run`` accepts four rclone commands and refuses every
+other: ``copy`` (uploads and downloads), ``check``, ``cat`` and ``lsf`` (reads). So no
+``sync``, ``delete``, ``purge`` or ``move`` can ever run against the bucket. Every upload also
+carries ``--immutable --checksum``: a file already in R2 with the same size and hash is
+skipped, and an upload that would change one fails instead. (``copyto`` is not allowed: rclone
+does not apply ``--immutable`` to it, so even manifests go up with ``copy``.) Files are only
+ever removed on the server (after 7 days, once found in R2) and, for raw files, by the
+lifecycle rule after 18 months.
 """
 
 import logging
@@ -29,6 +38,8 @@ REMOTE = "r2"
 RAW_PREFIX = "raw"
 EXPORTS_PREFIX = "exports/v1"
 TIMEOUT_S = 3600
+ALLOWED_COMMANDS = frozenset({"copy", "check", "cat", "lsf"})
+UPLOAD_FLAGS = ("--immutable", "--checksum")
 
 
 class RcloneError(RuntimeError):
@@ -117,6 +128,11 @@ class Rclone:
         return env
 
     def run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        if not args or args[0] not in ALLOWED_COMMANDS:
+            raise ValueError(f"rclone {args[:1]} is not allowed: only {sorted(ALLOWED_COMMANDS)}")
+        uploading = args[0] == "copy" and args[-1].startswith(f"{REMOTE}:")
+        if uploading and not all(flag in args for flag in UPLOAD_FLAGS):
+            raise ValueError("uploads to R2 must use --immutable --checksum: objects never change")
         command = [self.binary, "--config", "", *args]
         try:
             result = self._runner(
@@ -150,7 +166,12 @@ class Rclone:
         """Copy ``files`` (paths relative to ``local_root``) to ``prefix`` in the bucket."""
         if files:
             self._with_list(
-                files, "copy", "--no-traverse", str(local_root), self.config.target(prefix)
+                files,
+                "copy",
+                *UPLOAD_FLAGS,
+                "--no-traverse",
+                str(local_root),
+                self.config.target(prefix),
             )
 
     def verify(self, local_root: Path, prefix: str, files: Sequence[str]) -> None:
@@ -168,7 +189,11 @@ class Rclone:
             )
 
     def put(self, local_file: Path, path: str) -> None:
-        self.run("copyto", str(local_file), self.config.target(path))
+        """Upload one file to ``path``; its name must stay the same (``copy``, not ``copyto``)."""
+        folder, _, name = path.rpartition("/")
+        if name != local_file.name:
+            raise ValueError(f"put keeps the file name: {local_file.name} is not {name}")
+        self.upload(local_file.parent, folder, [name])
 
     def get(self, path: str) -> bytes | None:
         """A small object's bytes (manifests), or None if it doesn't exist."""

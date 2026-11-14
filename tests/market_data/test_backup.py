@@ -18,6 +18,7 @@ from pydantic import SecretStr
 
 from optlab.config import Settings
 from optlab.market_data.backup import (
+    BackupError,
     back_up_day,
     days_to_back_up,
     prune_local,
@@ -262,13 +263,14 @@ def test_local_copies_are_removed_after_7_days_only_once_found_in_r2(
     assert prune_local(database_url, data, rclone, date(2026, 11, 20), now_ms=NOW) == []
     # A copy in R2 is damaged: nothing is removed.
     remote = bucket / "raw/quotes/2026-11-13" / raw_files[0].name
-    remote.write_bytes(remote.read_bytes() + b"x")
+    original = remote.read_bytes()
+    remote.write_bytes(original + b"x")
     with pytest.raises(RcloneError):
         prune_local(database_url, data, rclone, date(2026, 11, 21), now_ms=NOW)
     assert all(p.exists() for p in raw_files)
     assert export_file.exists()
 
-    rclone.upload(data / "raw", "raw", [f"quotes/2026-11-13/{raw_files[0].name}"])
+    remote.write_bytes(original)  # repaired in R2 (an upload can't replace it: immutable)
     pruned = prune_local(database_url, data, rclone, date(2026, 11, 21), now_ms=NOW)
     assert pruned == [DAY]
     assert not any(p.exists() for p in raw_files)
@@ -316,3 +318,98 @@ def test_restore_fails_on_a_damaged_file_and_refuses_a_live_database(
     report = restore_test(empty_database_url, rclone, alembic_ini=ALEMBIC_INI, day=DAY)
     assert not report.ok
     assert any("SHA-256" in p for p in report.file_problems)
+
+
+# ------------------------------------------------------------------------------------ R2 only grows
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["sync", "delete", "deletefile", "purge", "move", "moveto", "rmdirs", "cleanup", "copyto"],
+)
+def test_rclone_commands_that_remove_anything_are_refused(command: str) -> None:
+    def never(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise AssertionError("rclone must not be started")
+
+    rclone = Rclone(RemoteConfig(bucket="b", env={}), runner=never)
+    with pytest.raises(ValueError, match="not allowed"):
+        rclone.run(command, "local-folder", rclone.config.target("raw"))
+    with pytest.raises(ValueError, match="--immutable"):
+        rclone.run("copy", "local-folder", rclone.config.target("raw"))
+    with pytest.raises(ValueError, match="not allowed"):
+        rclone.run("copyto", "--immutable", "--checksum", "f", rclone.config.target("raw/f"))
+
+
+def test_every_operation_uses_only_reading_or_immutable_upload_commands(tmp_path: Path) -> None:
+    seen: list[list[str]] = []
+
+    def record(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    rclone = Rclone(RemoteConfig(bucket="b", env={}), runner=record)
+    (tmp_path / "m.json").write_text("{}")
+    rclone.upload(tmp_path, "raw", ["a"])
+    rclone.verify(tmp_path, "raw", ["a"])
+    rclone.download("raw", tmp_path / "d", ["a"])
+    rclone.put(tmp_path / "m.json", "raw/manifests/m.json")
+    rclone.get("raw/manifests/x.json")
+    rclone.names("exports/v1/manifests")
+    commands = [c[3] for c in seen]  # after "rclone --config ''"
+    assert commands == ["copy", "check", "copy", "copy", "cat", "lsf"]
+    uploads = [c for c in seen if c[3] == "copy" and c[-1].startswith("r2:")]
+    assert len(uploads) == 2
+    for c in uploads:
+        assert "--immutable" in c
+        assert "--checksum" in c
+
+
+def test_an_upload_never_changes_an_object_already_in_r2(
+    tmp_path: Path, rclone_binary: str
+) -> None:
+    rclone, bucket = local_r2(tmp_path, rclone_binary)
+    local = tmp_path / "local"
+    (local / "quotes").mkdir(parents=True)
+    (local / "quotes" / "a.parquet").write_bytes(b"first version")
+    rclone.upload(local, "raw", ["quotes/a.parquet"])
+    rclone.upload(local, "raw", ["quotes/a.parquet"])  # the same again: fine
+    (local / "quotes" / "a.parquet").write_bytes(b"something else")
+    with pytest.raises(RcloneError):
+        rclone.upload(local, "raw", ["quotes/a.parquet"])
+    with pytest.raises(RcloneError):
+        rclone.put(local / "quotes" / "a.parquet", "raw/quotes/a.parquet")
+    assert (bucket / "raw" / "quotes" / "a.parquet").read_bytes() == b"first version"
+    # Same bytes with a newer modification time: skipped, not an error.
+    (local / "quotes" / "a.parquet").write_bytes(b"first version")
+    rclone.upload(local, "raw", ["quotes/a.parquet"])
+
+
+@pytest.mark.db
+def test_backing_up_a_day_again_is_harmless_but_never_replaces_r2(
+    database_url: str, tmp_path: Path, rclone_binary: str
+) -> None:
+    prepared(database_url)
+    data = tmp_path / "data"
+    write_raw(data, DAY)
+    rclone, bucket = local_r2(tmp_path, rclone_binary)
+    first = back_up_day(database_url, DAY, data, rclone, now_ms=NOW)
+    r2_files = {p: p.read_bytes() for p in bucket.rglob("*") if p.is_file()}
+
+    # The same day again (nothing changed): same version, R2 untouched.
+    again = back_up_day(database_url, DAY, data, rclone, now_ms=NOW + 60_000)
+    assert again.dataset_version == first.dataset_version
+    assert {p: p.read_bytes() for p in bucket.rglob("*") if p.is_file()} == r2_files
+
+    # After the server's copies are gone, a forced re-run must not shrink R2's raw list.
+    prune_local(database_url, data, rclone, date(2026, 11, 21), now_ms=NOW)
+    with pytest.raises(BackupError, match="never replaces data in R2"):
+        back_up_day(database_url, DAY, data, rclone, now_ms=NOW + 120_000)
+    assert {p: p.read_bytes() for p in bucket.rglob("*") if p.is_file()} == r2_files
+
+    # Data changed in the database: a different export is refused, not uploaded over the old.
+    with psycopg.connect(database_url) as conn:
+        conn.execute("UPDATE option_quotes SET bid_size = bid_size + 1 WHERE ts < '2026-11-14'")
+    write_raw(data, DAY)
+    with pytest.raises(BackupError, match="different export"):
+        back_up_day(database_url, DAY, data, rclone, now_ms=NOW + 180_000)
+    assert {p: p.read_bytes() for p in bucket.rglob("*") if p.is_file()} == r2_files
