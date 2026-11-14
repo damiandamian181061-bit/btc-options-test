@@ -23,3 +23,13 @@ could pick it up.
   is large.
 - **Open interest timing** (Phase 1). Deribit's ticker docs say `open_interest` is reported with
   a delay. Phase 3 should check it before any feature relies on it.
+- **Say who closed a connection** (Phase 1 gate). Disconnects are logged from the close frame
+  Deribit sent, which is missing when the TCP connection just ends; the websockets library also
+  closes on its own keepalive timeout (it then *sends* 1011). Logging the sent close code too
+  would tell the cases apart. Small change; Phase 2.
+- **Memory in the status line** (Phase 1 gate). Log the recorder's RSS every minute, so a slow
+  leak would show long before the 1 GB container limit. Phase 2.
+- **Short reconnects without a hole** (Phase 1 gate). A connection that drops seconds before a
+  minute boundary leaves its instruments out of that snapshot (seen once on day one: 21:11 on
+  13 Nov). The snapshot could instead use tickers received only seconds before the drop, flagged
+  as such. Only worth it if the Phase 2 gap report shows it happening often.

@@ -8,7 +8,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | Phase | When | Gate before the next phase | Status |
 | --- | --- | --- | --- |
 | 0 · Setup | Week 1 · days 1–2 | CI is green, Damian can SSH in as `deploy`, root login is refused, and `docker run hello-world` works on the server (backups and alerts configured) | **Passed** 10 Nov 2026 |
-| 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | **Recording** since 13 Nov 2026 16:32 UTC; gate check due from 14 Nov 16:35 UTC |
+| 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | **Passed** 14 Nov 2026 (raw-stream cap proposed, Damian to choose) |
 | 2 · Data and checks | Week 1 · days 4–7 | Restore from R2 works; the gap report covers every recorded day; the liquidity report names the book | Open |
 | 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | Open |
 | 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | Open |
@@ -22,9 +22,84 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 ## Current phase
 
-Phase 1 · Recorder live: built, tested and deployed on recorder-1. The recorder has been running
-since **2026-11-13 16:32 UTC**. The gate needs 24 full hours, so it can be checked from
-**2026-11-14 16:35 UTC** (Damian: "Check the Phase 1 gate and report.").
+Phase 1 · Recorder live: **passed** on 14 November 2026. The recorder keeps running on
+recorder-1 (since 2026-11-13 16:32 UTC, no restarts). Phase 2 has not started.
+
+## Phase 1 · Recorder: gate evidence (14 Nov 2026)
+
+Checked at 2026-11-14 18:55 UTC on recorder-1, read-only, at commit `89c4f6f` (the deployed
+code; `1e8824d` only changed this log).
+
+**Gaps: PASS.** `infra/dc exec -T db psql -U optlab -d optlab -x < infra/sql/gap_check.sql`:
+
+| Field | Result |
+| --- | --- |
+| window | 2026-11-13 18:54 → 2026-11-14 18:54 UTC (24 h, ending at the last full minute) |
+| minutes present / expected | 1441 / 1441 |
+| option rows per minute | 1206 to 1630 |
+| longest gap between snapshots | 00:01:00 |
+| gaps over 5 minutes | 0 |
+| breaks | none |
+| gate | **PASS** |
+
+The one short minute was 2026-11-13 21:11 (1,206 rows instead of 1,602): connection
+`deribit-ws-3` dropped at 21:10:59, one second before the snapshot, and its ~400 instruments
+were left out of that minute rather than written with prices from a dead connection. The same
+minute is the only one missing for four BTC_USDC futures carried on that connection.
+
+**Stability.** All three services up 26 hours, 0 restarts. 24 disconnects over 26 hours, all
+"connection closed without a close frame", each back within about a second (connected and
+resubscribed); only the 21:11 one cost data.
+
+**BTC_USDC linear dated futures (Damian's question).** All recorded. On 14 Nov Deribit lists 8
+BTC_USDC option expiries (15, 16, 17, 18, 20, 27 Nov, 25 Dec, 26 Mar) and one BTC_USDC dated
+future for each (checked against `public/get_instruments` live and against `instruments`).
+Each has 1,439 or 1,440 minutes in `underlying_ticks` over the last 24 hours (currency USDC).
+BTC_USDC-18NOV26, listed at 08:00, was picked up by the 08:00:30 discovery (first row 08:01);
+BTC_USDC-14NOV26 was recorded up to its 08:00 expiry and then marked inactive. Nothing was
+changed on the server.
+
+**Day-one volume** (`infra/sql/volume.sql`, `du`, and a one-off export measurement):
+
+| Item | Day one |
+| --- | --- |
+| `option_quotes` | 2,312,204 rows per 24 h; 860 MB in the database after 26 h (616 MB table, 244 MB indexes), uncompressed until chunks are 7 days old |
+| `underlying_ticks` | 34,580 rows per 24 h; 9 MB |
+| `option_trades` | 14,259 trades per 24 h; 4.6 MB |
+| whole database | 884 MB after 26 h |
+| raw quotes (24 complete hours, 13 Nov 18:00 → 14 Nov 18:00) | 267.9 MB (busiest hour 22.4 MB, quietest 5.1 MB) |
+| raw trades (same hours) | 1.0 MB |
+| one day as zstd Parquet (what Phase 2 uploads) | `option_quotes` 81.3 MB (35 B/row), `underlying_ticks` 0.8 MB, `option_trades` 0.5 MB: 82.6 MB |
+| R2 growth at the day-one rate | 0.35 GB a day (0.27 raw + 0.08 exports), about 10.7 GB a month |
+
+Server resources: disk 14% (11 of 77 GB; the jump from 5.3 GB is mostly one-off Docker images
+3.1 GB and build cache 0.9 GB); memory 2.3 GiB available. The recorder's own memory is 340 MB
+(flat over 10 minutes; current 387 MB RSS below its 425 MB peak, so a busy-hour high-water mark
+rather than a leak so far); the database uses 742 MB of its 1.5 GB limit.
+
+Day one was a Friday evening into a Saturday, usually quieter than a weekday, so weekday and
+volatile days will be larger.
+
+**Proposed raw-stream cap (for Damian to choose).** R2 charges $0.015 per GB-month above the
+free 10 GB (before any VAT), so $10 a month is about 677 GB stored. Storage only grows, so the
+proposal has two parts:
+
+1. **At most 1 GB of raw files per UTC day** (about 3.7 times day one), with a warning at
+   0.75 GB. Past 1 GB, the best bid/ask stream is thinned for the rest of that UTC day to at
+   most one change per instrument per second; trades are never thinned.
+2. **Raw files kept 18 months in R2**; the database exports are kept for good (2.5 GB a month).
+
+| Months of recording | Stored at day-one rate | R2 cost | Stored if every day hits the cap | R2 cost |
+| --- | --- | --- | --- | --- |
+| 12 | 128 GB | $1.77 | 395 GB | $5.77 |
+| 24 | 207 GB | $2.96 | 607 GB | $8.96 |
+| 48 | 268 GB | $3.87 | 668 GB | $9.87 |
+
+So R2 stays under $10 a month for about four years even if every single day hits the cap, and
+near $2 to $4 a month at day-one volume. Without retention, day-one volume reaches $10 a month
+after about five years, and a constant 1 GB a day after about 21 months. Class A writes (about
+50 files a day plus the nightly export) stay far inside the free million a month. The cap and
+retention are built in Phase 2 with the R2 upload, once Damian chooses.
 
 ## Phase 1 · Recorder: build and deploy (13 Nov 2026)
 
@@ -131,13 +206,18 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. From 2026-11-14 16:35 UTC: check the Phase 1 gate. Run `infra/sql/gap_check.sql` (gaps over
-   5 minutes in the last 24 hours) and `infra/sql/volume.sql` plus `du` on `data/raw` (day-one
-   volume), propose the raw-stream cap for R2, and record the evidence here.
-2. Then Phase 2 · Data and checks (Prompt 2). Before it starts, Damian pastes the R2 keys and
-   `HC_PING_URL_BACKUP` into the server's `.env`.
+1. Damian chooses the raw-stream cap and R2 retention (proposal above).
+2. Phase 2 · Data and checks (Prompt 2), including the chosen cap. Before it starts, Damian
+   pastes the R2 keys and `HC_PING_URL_BACKUP` into the server's `.env`. Until Phase 2 moves
+   raw files to R2, they stay on the server (about 0.3 GB a day, ample room).
 
 ## Open questions
+
+- **Raw-stream cap**: 1 GB a day with thinning past it, and 18 months of raw files in R2?
+  (Phase 1 gate evidence above.)
+- **Disconnects**: 24 in 26 hours, all closed without a close frame, recovered in about a
+  second. The log can't yet say whether Deribit, the network or our own keepalive closed them;
+  `docs/later.md` has the small logging change that would tell.
 
 - **Two-step USDC settlement.** The brief says linear USDC options settle in two steps since
   April 2026. Deribit's API docs and changelogs (read 12 Nov) don't mention it. The recorder
