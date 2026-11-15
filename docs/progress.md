@@ -10,7 +10,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | 0 · Setup | Week 1 · days 1–2 | CI is green, Damian can SSH in as `deploy`, root login is refused, and `docker run hello-world` works on the server (backups and alerts configured) | **Passed** 10 Nov 2026 |
 | 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | **Passed** 14 Nov 2026 (raw-stream cap chosen 14 Nov) |
 | 2 · Data and checks | Week 1 · days 4–7 | Restore from R2 works; the gap report covers every recorded day; the liquidity report names the book | **Passed** 15 Nov 2026 |
-| 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | Open |
+| 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | **Running** since 15 Nov 2026 15:30 UTC; gate check after 16 Nov 15:30 UTC |
 | 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | Open |
 | 4 · Backtest engine | Weeks 2–3 | Determinism, leakage and reconciliation tests pass on a real week; hand-checked smoke trade matches | Open |
 | 5 · Strategies and results | Week 3 | Full report of v1 rules vs every benchmark on the locked test, after costs | Open |
@@ -22,10 +22,164 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 ## Current phase
 
-Phase 2 · Data and checks: **passed** on 15 November 2026. Phase 2B (rough end-to-end
-version) has not started. Running on recorder-1: `db`, `recorder`, `health`, `jobs` (data
-checks hourly, R2 backup nightly at 00:30 UTC) and `dashboard` (status page, server
-localhost only); the restore test runs monthly from a systemd timer.
+Phase 2B · Rough end-to-end version: **deployed and running** since 15 November 2026 15:30
+UTC; the gate (24 hours of running, trades on the page, the shortcut list) is checked after
+16 Nov 15:30 UTC.
+
+Running on recorder-1, at commit `9ccff8e`:
+
+- `db`, `recorder` and `health`;
+- `jobs`: data checks hourly, R2 backup nightly at 00:30 UTC;
+- `dashboard`: the status page, now with a "Paper trading (ROUGH)" tab, on the server's
+  localhost only;
+- `paper`: the ROUGH paper service.
+
+The restore test runs monthly from a systemd timer.
+
+## Phase 2B · Rough end-to-end version (15 Nov 2026)
+
+Everything from this step is labelled ROUGH. Its profit and loss is not a result.
+`docs/rough-version.md` has the rule, the price-history source, the fees, and 28 shortcuts,
+each with the phase that replaces it.
+
+**Built** (commit `9ccff8e`, CI run 43729005076 green: lint, types, tests, Docker image,
+full-history secret scan):
+
+1. **The rough rule** (`optlab.strategy.rough`, `configs/strategies/rough.yaml`). Damian
+   confirmed the definitions on 15 Nov.
+   - *Filters.* 30-day ATM IV from BTC_USDC mark IVs: each expiry's IV at its forward,
+     interpolated in total variance to 30 days. RV30: 30 daily log returns of the 08:00
+     `btc_usdc` delivery price, sqrt(365 * mean r^2). IV must be strictly above RV. Trend: the
+     `btc_usdc` index against the mean of the last 20 delivery prices.
+   - *Spread.* Short leg |delta| 0.15 to 0.30, 7 to 30 days to expiry. The long leg is the
+     nearest further-out strike 2% to 6% of the forward away.
+   - *v1 checks* (Damian chose them for the rough version too): two-sided, not crossed,
+     bid-ask at most 10% of mid, quotes under 2 minutes old, credit after fees at least 20% of
+     the width.
+   - *Choice.* The closest to 0.20 delta that passes every check. If the closest fails (for
+     example on the minimum credit), the next one that passes is taken. If none passes, "no
+     trade" is stored with the count of each failure. Both cases are tested.
+   - *Exits.* Every minute: take profit at 50% of the entry credit, stop at 2 times, both on
+     executable prices before fees; otherwise settlement at the delivery price.
+   - *When.* Once a day from 09:00 UTC; on a start after 09:00 with no decision that day,
+     straight away.
+2. **Risk** (`optlab.risk.rough`, `configs/risk/rough.yaml`): size to a 2% maximum loss, cut to
+   the quoted size and floored to 0.01 BTC; at most 5 open spreads, 2 per expiry, 10% total
+   maximum loss.
+3. **Fees** (`configs/fees/deribit.yaml`, `optlab.simulator.rough_fees`): Damian confirmed them on
+   15 Nov 2026 (see below).
+4. **Ledger** (`optlab.ledger.rough`): exact decimals in USDC. Entry sells the short leg at its
+   bid and buys the long leg at its ask; the exit reverses that; settlement closes each leg at
+   intrinsic value with one delivery fee per in-the-money leg. Equity is cash plus the open
+   spreads at Deribit's mark.
+5. **Paper service** `optlab-paper-rough` (`optlab.simulator.rough_paper`): the `paper` Compose
+   service (512 MB, `restart: unless-stopped`, no port, no keys).
+   - It processes each snapshot minute once, through `MarketDataView(as_of=minute)`.
+   - It skips flagged minutes: known skip periods, plus live checks for a partial snapshot and
+     a missing or stale index.
+   - Each entry or close is stored in one transaction, so a restart never enters twice.
+   - It imports no exchange client, and a test runs a full step with every Python network
+     connection refused.
+   - Migration `0003` adds the `rough_*` tables and `host_boots`.
+6. **Page**: the status page's "Paper trading (ROUGH)" tab: equity chart, daily decisions with
+   reasons, open and closed spreads, every paper fill, and the service's last run.
+7. **Reboot policy**: unattended-upgrades restarts at 04:00 UTC only when an update needs it
+   (`infra/apt/52optlab-reboot`, infra/server-setup.md section 6). The `jobs` service records
+   each boot (`host_boots`), and the hourly checks label the gap as `server_reboot` (checks
+   version 2).
+
+Tests: 267, all passing on the laptop with none skipped (the database, plus rclone copied from
+the pinned image). They include 63 for the rough version, with hand-worked golden values for
+IV30, RV30, the fees, fills and settlement. The recorder's `SCHEMA_REVISION` is now `0003`.
+
+**Fees (Damian confirmed the numbers on 15 Nov 2026).** From Deribit's fee page
+(https://support.deribit.com/hc/en-us/articles/25944746248989-Fees, updated 11 Nov 2026 09:46
+UTC), Standard tier, effective from 10 Nov 2026 12:00 UTC:
+
+| | Linear (BTC_USDC) | Inverse (BTC) |
+| --- | --- | --- |
+| Trading, maker / taker | 0.03% / 0.03% of the index price, in USDC | 0.03% / 0.03% (0.0003 BTC per contract), in BTC |
+| Cap | 12.5% of the premium | 12.5% of the premium |
+| Daily (non-Friday) expiries | maker 0 until 31 Jan 2027; taker 0.03% | no change |
+| Delivery, in-the-money legs | 0.015% of the delivery price, at most 12.5% of the option's value | the same |
+| Daily options' delivery | 0 | 0 |
+
+The page also lists these, none used by the rough version: the combo discount (the cheaper
+direction is free), block trades at 0.03%, and VIP1 from 100k USDC equity (0.025%, cap
+10.42%). Damian kept Standard. On delivery fees, Damian confirmed (Deribit's announcement
+https://insights.deribit.com/?p=113365 and the Linear USDC Options article) that each expiring
+in-the-money option pays its delivery fee before any netting, and the future it becomes pays
+none. A spread with both legs in the money therefore pays one fee per in-the-money leg, as
+built.
+
+**Price history.** RV30 and the trend use the `btc_usdc` daily delivery prices from Deribit's
+free public `public/get_delivery_prices`. The recorder already stores them in
+`delivery_prices`: it backfilled 30 days (15 Oct to 13 Nov) at its first start and adds each
+day since. Nothing new was fetched.
+
+**Deploy on recorder-1 (15 Nov 2026, server clock).**
+
+- *15:20–15:24.* `git pull`, then the image built on the server. Running services kept their
+  old image.
+- *15:24–15:25, backup before the migration.* `backups/pre-migration-20261115T1524Z.dump`,
+  212 MB, read back with `pg_restore --list`: 37 table-data entries. Disk 21% used.
+- *15:25, migration.* `0002 -> 0003` in a one-off container with `--no-deps`. All five
+  services kept running.
+- *15:30:02, restart.* `infra/dc up -d --no-deps recorder jobs dashboard paper`: the recorder
+  because of its schema check, `jobs` for the reboot label, `dashboard` for the new tab, and
+  `paper` new. `db` and `health` were untouched.
+- *Snapshots.* None missed: 1,746 option rows in each minute 15:26 to 15:31.
+- *Memory.* Paper 114 MiB of 512; recorder 87 MiB; dashboard 54 MiB; `db` 1.11 of 1.5 GiB.
+- *The 00:30 backup* was far away, so `jobs` was not paused. Its restart's catch-up run backed
+  up nothing new (ping OK) and recorded the current boot (9 Nov 22:21:26 UTC).
+- *Reboot policy* installed (`/etc/apt/apt.conf.d/52optlab-reboot`); `apt-config dump` shows
+  all three settings.
+- *Page.* Rendered headless inside the `dashboard` container: both tabs, today's decision, no
+  error.
+
+**First decision (15 Nov, at 15:30 UTC, the service's first start):** no trade, "IV30 41.47% is
+not above RV30 43.98%". BTC was at 64,601, against a 20-day average of 75,478. Today's 08:00
+delivery price added a large daily fall to the 30-day window. The next decision is 16 Nov
+09:00 UTC. As Damian asked, if no trade has happened by the gate check, the report says so and
+the rules stay as they are.
+
+**A restart is already waiting.** `libc6` was updated on 13 Nov 06:20 and set
+`/var/run/reboot-required`. unattended-upgrades 2.12 schedules the restart after every completed
+run while that file exists, even a run that installs nothing (checked in its code). The next run
+(about 06:57 UTC on 16 Nov) will therefore schedule `shutdown -r 04:00`, and the server will
+restart by itself at **04:00 UTC on Tue 17 Nov**. That is after the gate check. Docker and every
+service start again on their own; this was not tested by rebooting, as Damian asked. To cancel
+it once scheduled: `sudo shutdown -c`.
+
+**BTC_USDC 4 Dec expiry:** not listed. Deribit's live list on 15 Nov 15:35 UTC: 16, 17, 18, 19
+(new), 20 and 27 Nov, 25 Dec and 26 Mar. Unless Deribit lists one, from 20 Nov 08:00 to 25 Nov
+08:00 UTC no BTC_USDC expiry is 7 to 30 days away, and the rule makes no entry on those days
+(tested).
+
+**Laptop clock.** WSL's clock fell about 10 hours behind the server's during this session,
+probably after the laptop slept. The commit's timestamp (about 05:3x UTC) is that clock. The
+server's chrony clock is right, and every time in this log is the server's.
+
+## Damian's Phase 2 decisions (15 Nov 2026)
+
+- **Book:** BTC_USDC (linear) is the main book. The inverse book keeps being recorded as the
+  fallback. Phase 2B uses BTC_USDC.
+- **No BTC_USDC expiry 7 to 30 days away:** no entry that day, and no switch to inverse.
+- **Data-quality thresholds** (`configs/data_quality.yaml`): confirmed as proposed, to be
+  re-checked on a few weeks of data.
+- **Data-quality flags and entries:**
+  - a flag on one option blocks only spreads using that option;
+  - a flag on an expiry's future blocks every spread on that expiry;
+  - global flags (missing or partial snapshot, stale index) block all entries.
+
+  The rough version may simply skip flagged minutes (a listed shortcut); Phase 5 builds the
+  full rule.
+- **Minimum credit:** keep 20% of the width for v1. Alternatives are tested in Phase 5 on
+  validation data only.
+- **Rough version:** the v1 entry checks and limits apply. Among short legs with |delta| 0.15
+  to 0.30, take the one closest to 0.20 that passes every check. Every daily decision shows on
+  the page with its reason. The rules are not loosened to force a trade.
+- **Reboot policy:** automatic restart at 04:00 UTC, only when an update needs one.
 
 ## Phase 2 · Data and checks: gate evidence (14–15 Nov 2026)
 
@@ -411,37 +565,27 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Damian, by hand (details in the Phase 2 report):
-   - add the R2 lifecycle rule in the Cloudflare dashboard: prefix `raw/`, delete objects 548
-     days (18 months) after upload. The R2 token is Object Read & Write only, which cannot set
-     bucket rules;
-   - for laptop backtests: `sudo apt install rclone`, and put the four `R2_` lines in the
-     laptop's own `.env` (the same token: it has no IP filter);
-   - confirm the book (BTC_USDC) and the data-quality thresholds, and answer the USDC expiry
-     question below.
-2. Phase 2B · Rough end-to-end version (Prompt 2B).
+1. **After 16 Nov 15:30 UTC: check the Phase 2B gate** ("Check the Phase 2B gate and report").
+   The checks: `rough_runs` covers 24 hours (minutes processed and skipped), the page shows the
+   decisions and any trades, and `docs/rough-version.md` exists. If no trade has happened, the
+   report says so.
+2. Damian, by hand:
+   - still open from Phase 2: the R2 lifecycle rule in the Cloudflare dashboard (prefix `raw/`,
+     delete objects 548 days after upload), and, for laptop backtests, `sudo apt install
+     rclone` with the four `R2_` lines in the laptop's own `.env`;
+   - update the live Build Brief:
+     - "Decisions so far": the Server upkeep row now has automatic restarts at 04:00 UTC when
+       an update needs one;
+     - "Decisions so far": the Phase 2 decisions above;
+     - Phase 2B: running;
+   - if you'd rather not have the 17 Nov 04:00 restart, run `sudo shutdown -c` on the server
+     after about 07:00 UTC on 16 Nov, or ask me to;
+   - the laptop's WSL clock: in PowerShell, `wsl --shutdown`, then open Ubuntu again, and
+     `date -u` should match the real UTC time.
+3. Phase 3 · Pricing and volatility surface (Prompt 3), after the 2B gate.
 
 ## Open questions
 
-- **Book:** the liquidity report (`research/liquidity_report.md`) recommends BTC_USDC (linear).
-  Confirm, or choose inverse.
-- **When BTC_USDC has no expiry 7 to 30 days away.** On 14 Nov, BTC_USDC listed no 4 Dec expiry
-  (inverse did). Unless Deribit lists one, no USDC expiry is in the v1 window from 20 Nov 08:00
-  to 25 Nov 08:00 UTC. Should v1 then make no entry (simplest), or fall back to inverse?
-  The recorder will show whether Deribit adds USDC expiries; needed by Phase 2B's paper service.
-- **Data-quality thresholds** (`configs/data_quality.yaml`, proposed from the first 30 hours):
-  partial snapshot under 98% of listed options; stale quote over 120 s; mark IV outside 0.05
-  to 5.0 or moving over 0.10 in a minute (2+ days to expiry); index missing, over 60 s old or
-  unchanged for 5 minutes. Missing and partial snapshots and a stale index mark minutes to
-  skip.
-- **"No entry while any data-quality flag is active"** (v1 rules): flags are global (missing
-  or partial snapshot, stale index) or per instrument (crossed, empty or stale book, IV
-  outlier). Should an instrument flag block only spreads using that instrument (proposed), or
-  all entries? Needed by Phase 5.
-- **Minimum credit:** in the liquidity report, "credit at least 20% of width" (before fees)
-  holds for 10% of USDC candidate spreads (5% inverse); a liquid spread meeting it existed in
-  46% of sampled minutes (27% inverse). So the minimum credit, not liquidity, will limit
-  entries. Not a data problem; worth knowing before Phase 5.
 - **Open interest delay.** Deribit's ticker docs say `open_interest` is reported with a delay.
   Stored as given; Phase 3 should check it before using it.
 - JEV details (inputs, outputs, determinism, speed and cost per call, training dates, whether it
@@ -449,6 +593,18 @@ Decisions made during Phase 0 (9 Nov):
 - The DigitalOcean metrics agent (`do-agent`) is not installed on recorder-1, although the brief
   says monitoring is on. Install it from the Droplet's Graphs tab if you want the graphs (see
   `docs/later.md`).
+
+Closed on 15 Nov 2026 (Damian's decisions, above):
+
+- **Book:** BTC_USDC (linear), with the inverse book recorded as the fallback.
+- **No BTC_USDC expiry 7 to 30 days away:** no entry that day; no switch to inverse.
+- **Data-quality thresholds:** confirmed; to be re-checked on a few weeks of data.
+- **Data-quality flags and entries:** an option flag blocks only spreads using that option; a
+  future's flag blocks its expiry; global flags block all entries.
+- **Minimum credit:** 20% of the width for v1; alternatives in Phase 5 on validation data only.
+- **Fees for Phase 2B:** confirmed from Deribit's fee page (Standard tier), delivery fee once per
+  in-the-money leg.
+- **Reboot policy for kernel updates:** automatic restart at 04:00 UTC when an update needs one.
 
 Closed on 14 Nov 2026:
 
