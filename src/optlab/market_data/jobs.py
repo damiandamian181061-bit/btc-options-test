@@ -8,7 +8,8 @@
     optlab-data sync DAY... | --from ISO --to ISO | --list   pull days from R2 (laptop)
     optlab-data notify-failure MESSAGE   failure ping to HC_PING_URL_BACKUP (infra/restore-test)
 
-Schedule (UTC): data checks at 5 minutes past every hour. The backup at 00:30: it first
+Schedule (UTC): data checks at 5 minutes past every hour (each run first records the server's
+boot time, so the checks can label the gap a restart leaves). The backup at 00:30: it first
 brings the data checks up to date, then backs up every finished day not yet verified in R2,
 removes the server's copies older than 7 days, and pings HC_PING_URL_BACKUP. A failed backup
 sends a failure ping and is retried every hour until it works. Both also run once at start-up,
@@ -45,7 +46,9 @@ from optlab.market_data.health import HealthchecksPinger
 from optlab.market_data.quality import (
     format_gap_report,
     gap_report,
+    host_boot_ms,
     load_quality_config,
+    record_boot,
     run_checks,
 )
 from optlab.market_data.r2 import Rclone, RcloneError, r2_config
@@ -101,6 +104,7 @@ class Jobs:
     settings: Settings
     job: JobSettings
     clock: Callable[[], int] = now_ms
+    boot_time: Callable[[], int | None] = host_boot_ms
 
     @property
     def url(self) -> str:
@@ -109,6 +113,9 @@ class Jobs:
     def checks(self, hours: Sequence[int] | None = None) -> int:
         config = load_quality_config(self.job.config_dir)
         with psycopg.connect(self.url, application_name="optlab-checks") as conn:
+            boot = self.boot_time()
+            if boot is not None and record_boot(conn, boot, self.clock()):
+                logger.info("server boot recorded: %s UTC", ms_to_datetime(boot))
             return len(run_checks(conn, config, self.clock(), hours=hours))
 
     def backup(self, day: date | None = None) -> bool:

@@ -14,6 +14,13 @@ spans hours gives one finding per hour; the gap report joins them up). Threshold
 | empty_book         | instrument | no   | neither a bid nor an ask                               |
 | stale_quote        | instrument | no   | last ticker older than ``stale_quote_s``               |
 | iv_outlier         | instrument | no   | mark IV missing, out of bounds, or jumping             |
+| server_reboot      | global     | yes  | the server restarted: labels the gap around the boot   |
+
+``server_reboot`` copies the span of the missing or partial minutes within 10 minutes of a
+boot recorded in ``host_boots`` (the jobs service stores the host's boot time from
+``/proc/stat`` every time it runs, including just after a reboot), so the gap report says why
+those minutes are missing. A boot that lost no minute gets a one-minute finding that does not
+skip anything.
 
 ``skip`` findings are the gap periods: backtests leave those snapshot minutes out
 (``MarketDataView.snapshot_times``). Instrument findings don't remove the minute; strategies
@@ -41,7 +48,7 @@ from optlab.domain.clock import MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, floor_ms
 logger = logging.getLogger(__name__)
 
 CONFIG_FILE = "data_quality.yaml"
-CHECKS_CODE_VERSION = "1"  # bump when a check's logic changes
+CHECKS_CODE_VERSION = "2"  # bump when a check's logic changes (2: server_reboot)
 
 MISSING = "missing_snapshot"
 PARTIAL = "partial_snapshot"
@@ -50,8 +57,10 @@ CROSSED = "crossed_book"
 EMPTY = "empty_book"
 STALE_QUOTE = "stale_quote"
 IV_OUTLIER = "iv_outlier"
+REBOOT = "server_reboot"
+REBOOT_WINDOW_MS = 10 * MS_PER_MINUTE
 INSTRUMENT_CHECKS = (CROSSED, EMPTY, STALE_QUOTE, IV_OUTLIER)
-SKIP_CHECKS = (MISSING, PARTIAL, STALE_INDEX)
+SKIP_CHECKS = (MISSING, PARTIAL, STALE_INDEX, REBOOT)
 
 # An hour is checked once the recorder has written a snapshot after it, or this long after
 # its end if nothing arrives (a stopped recorder must still show up as a gap).
@@ -212,7 +221,66 @@ def check_hour(
 
     findings.extend(_index_findings(conn, expected, hour_ms, end_ms, config))
     findings.extend(_instrument_findings(conn, params, config))
+    gaps = minute_runs(m for m in expected if m not in counts or m in partial)
+    findings.extend(_reboot_findings(conn, hour_ms, end_ms, gaps))
     return result
+
+
+def host_boot_ms(stat: Path = Path("/proc/stat")) -> int | None:
+    """When the machine last booted (UTC ms), from ``btime``; a container sees the host's."""
+    try:
+        text = stat.read_text(encoding="ascii")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("btime "):
+            return int(line.split()[1]) * 1000
+    return None
+
+
+def record_boot(conn: psycopg.Connection[Any], boot_ms: int, now_ms: int) -> bool:
+    """Store a boot time once; True if it was new. ``btime`` can drift by a second, so a time
+    within a minute of a stored boot is the same boot."""
+    row = conn.execute(
+        "INSERT INTO host_boots (boot_ms, first_seen_ms) SELECT %(b)s, %(n)s "
+        "WHERE NOT EXISTS (SELECT 1 FROM host_boots WHERE abs(boot_ms - %(b)s) < 60000) "
+        "RETURNING boot_ms",
+        {"b": boot_ms, "n": now_ms},
+    ).fetchone()
+    return row is not None
+
+
+def _reboot_findings(
+    conn: psycopg.Connection[Any], hour_ms: int, end_ms: int, gaps: Sequence[tuple[int, int, int]]
+) -> list[Finding]:
+    boots = conn.execute(
+        "SELECT boot_ms FROM host_boots WHERE boot_ms >= %s AND boot_ms < %s ORDER BY 1",
+        (hour_ms - REBOOT_WINDOW_MS, end_ms + REBOOT_WINDOW_MS),
+    ).fetchall()
+    out: list[Finding] = []
+    for (boot,) in boots:
+        boot = int(boot)
+        detail = f"server restarted (booted {ms_to_datetime(boot):%Y-%m-%d %H:%M:%S} UTC)"
+        near = [
+            g for g in gaps if g[0] <= boot + REBOOT_WINDOW_MS and g[1] >= boot - REBOOT_WINDOW_MS
+        ]
+        for start, end, n in near:
+            out.append(Finding(REBOOT, "global", "", start, end, n, True, detail))
+        if not near and hour_ms <= boot < end_ms:
+            minute = floor_ms(boot, MS_PER_MINUTE)
+            out.append(
+                Finding(
+                    REBOOT,
+                    "global",
+                    "",
+                    minute,
+                    minute + MS_PER_MINUTE,
+                    1,
+                    False,
+                    detail + "; no minute lost",
+                )
+            )
+    return out
 
 
 def _index_findings(

@@ -1,0 +1,10 @@
+# ROUGH (Phase 2B) sizing and limits for the rough paper service (optlab.risk.rough).
+# From the brief's confirmed "Sizing and limits" table; the other limits there (portfolio delta
+# and vega, daily loss limit, kill switch) are not applied: see docs/rough-version.md.
+label: rough
+currency: USDC
+starting_equity: "100000"  # paper capital
+max_loss_of_equity: "0.02"  # size so width minus credit (after fees) is at most 2% of equity
+max_open_spreads: 5
+max_open_per_expiry: 2
+max_total_loss_of_equity: "0.10"  # sum of open spreads' maximum losses

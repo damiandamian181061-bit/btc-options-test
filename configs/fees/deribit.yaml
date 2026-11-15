@@ -1,0 +1,56 @@
+# Deribit option fees, from Deribit's published fee page. Loaded by optlab.simulator.rough_fees.
+#
+# Source:  https://support.deribit.com/hc/en-us/articles/25944746248989-Fees
+# Page last updated 11 Nov 2026 09:46 UTC; read 15 Nov 2026. Damian confirmed these numbers on
+# 15 Nov 2026 (Standard tier). The schedule applies from effective_from (the latest change on the
+# page: 0 maker fees on linear daily options from 10 Nov 2026 12:00 UTC); a run on data before
+# it must use an older schedule, and loading refuses that.
+#
+# Rates are fractions (0.0003 = 0.03% = 3 bps).
+# Trading fee per leg = min(rate * underlying, cap_of_premium * option price) * amount (BTC),
+# in the premium's currency. "Underlying" is the index price in USDC for linear options, and
+# 1 BTC per contract for inverse options (whose premiums and fees are in BTC).
+exchange: deribit
+source: https://support.deribit.com/hc/en-us/articles/25944746248989-Fees
+page_updated: 2026-11-11T09:46:20Z
+read_on: 2026-11-15
+confirmed: Damian, 15 Nov 2026
+effective_from: 2026-11-10T12:00:00Z
+tier: standard  # no volume or equity criteria; fee discounts never apply to delivery fees
+
+trading:
+  linear:  # BTC_USDC options: premiums and fees in USDC
+    currency: USDC
+    maker: "0.0003"
+    taker: "0.0003"
+    cap_of_premium: "0.125"
+    # "USDC Options (Daily Expiries)": any option that does not expire on a Friday. Maker 0 from
+    # 10 Nov 2026 12:00 UTC, "scheduled to remain in effect through 31 January 2027"; taker
+    # unchanged; the cap still applies.
+    daily_maker: "0"
+    daily_maker_until: 2027-01-31
+  inverse:  # BTC options: premiums and fees in BTC; inverse options are not affected by the above
+    currency: BTC
+    maker: "0.0003"
+    taker: "0.0003"
+    cap_of_premium: "0.125"
+
+# Delivery (settlement at expiry), on in-the-money options only: rate * underlying * amount,
+# "never higher than 12.5% of the option's value" (so 0 for an option that expires worthless).
+# "The daily options ... are exempt from delivery fees." Since April 2026 (linear) and
+# 1 August 2026 (inverse) an in-the-money option first becomes a position in its expiry's future;
+# the option's delivery fee is charged once, then, and the future adds none (docs/brief.md).
+delivery:
+  linear:
+    rate: "0.00015"
+    cap_of_value: "0.125"
+  inverse:
+    rate: "0.00015"
+    cap_of_value: "0.125"
+  daily_exempt: true
+
+# On the page but not modelled (docs/rough-version.md):
+# - option combo discount: in a combo with buy and sell legs, the cheaper direction's fees are 0
+#   (the rough version fills leg by leg and charges both legs);
+# - block trades 0.03%; VIP tiers (VIP1 from 100k USDC equity: 0.025%, cap 10.42%);
+# - liquidation fees; collateral fees on negative balances.

@@ -29,7 +29,9 @@ from optlab.market_data.snapshot import Snapshot
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_REVISION = "0002"
+# The recorder refuses to start on any other revision, so after every migration the recorder
+# must be restarted on the new image too (infra/server-setup.md).
+SCHEMA_REVISION = "0003"
 
 _INSTRUMENT_COLUMNS = (
     "instrument_name",

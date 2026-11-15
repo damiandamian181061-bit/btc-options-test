@@ -23,6 +23,7 @@ dependencies = [
 optlab-recorder = "optlab.market_data.service:recorder_main"
 optlab-health = "optlab.market_data.service:health_main"
 optlab-data = "optlab.market_data.jobs:main"
+optlab-paper-rough = "optlab.simulator.rough_paper:main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14"]

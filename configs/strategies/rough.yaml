@@ -1,0 +1,38 @@
+# ROUGH (Phase 2B) daily credit-spread rule, run by the rough paper service
+# (optlab.strategy.rough). Confirmed by Damian on 15 Nov 2026; every shortcut is listed in
+# docs/rough-version.md. Its profit and loss is not a result.
+#
+# Once a day: if the 30-day ATM implied vol (Deribit mark IVs, BTC_USDC) is above the 30-day
+# realised vol, sell a bull put spread when BTC is above its 20-day average, or a bear call
+# spread when below, with the short leg near 0.20 delta and 7 to 30 days to expiry.
+label: rough
+book: linear  # BTC_USDC; no switch to inverse when no expiry is 7 to 30 days away
+index_name: btc_usdc  # delivery prices (realised vol, trend, settlement) and the index price
+
+# When: the first usable snapshot at or after this UTC hour, once per UTC day. After the
+# 08:00 expiry, its delivery price (fetched by the recorder at 08:01) and new listings.
+decision_hour_utc: 9
+
+# Filters
+iv_tenor_days: 30
+rv_returns: 30  # daily log returns of the 08:00 delivery price
+trend_days: 20  # moving average of the last 20 delivery prices
+iv_minus_rv_min: 0.0  # IV must be strictly above RV (v1 wants 3 vol points; not here)
+
+# Candidate spreads
+dte_min_days: 7
+dte_max_days: 30
+short_delta_target: 0.20  # |Deribit delta| closest to this among the legs that pass every check
+short_delta_min: 0.15
+short_delta_max: 0.30
+width_min_of_forward: 0.02  # long leg: nearest further-out strike 2% to 6% of the forward away
+width_max_of_forward: 0.06
+
+# v1 checks (confirmed for the rough version too)
+max_spread_of_mid: 0.10  # each leg's bid-ask at most 10% of its mid
+max_quote_age_s: 120  # quotes under 2 minutes old
+min_credit_of_width: 0.20  # credit after fees at least 20% of the width
+
+# Exits, checked every minute on executable prices before fees
+take_profit_of_credit: 0.50  # buy back when it costs 50% of the entry credit or less
+stop_loss_of_credit: 2.0  # buy back when it costs 2 times the entry credit or more

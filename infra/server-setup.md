@@ -4,7 +4,8 @@ How to build the always-on server from nothing, in the order it was done on 9 No
 (Phase 0). Every command below was run on the real server; the outputs quoted are what a correct
 setup prints.
 
-`recorder-1` runs the recorder, paper trading and the dashboard. Everything else (tests,
+`recorder-1` runs the recorder, paper trading (the rough paper service from Phase 2B) and the
+dashboard. Everything else (tests,
 backtests) runs on the laptop.
 
 > **Placeholders.** `SERVER_IP` is the Droplet's public IPv4 address. Never write the real
@@ -150,11 +151,39 @@ If either line is missing: `sudo apt-get install -y unattended-upgrades` and
 `sudo dpkg-reconfigure -plow unattended-upgrades` (answer Yes).
 
 Defaults kept: security updates install daily from `${distro_codename}-security` (plus ESM).
-There are **no automatic reboots**, so a reboot never interrupts the recorder unannounced. When
-`/var/run/reboot-required` exists, reboot by hand at a quiet time. Docker comes from Docker's own
-repository and is **not** auto-updated, because a Docker upgrade restarts every container. Update
-it by hand with `sudo apt-get update && sudo apt-get install --only-upgrade docker-ce
-docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin`.
+Docker comes from Docker's own repository and is **not** auto-updated, because a Docker upgrade
+restarts every container. Update it by hand with `sudo apt-get update && sudo apt-get install
+--only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin`.
+
+**Reboot policy (decided 15 Nov 2026).** When an automatic update needs a restart
+(`/var/run/reboot-required` exists after an unattended-upgrades run), the server restarts by
+itself at the next **04:00 UTC**, even with someone logged in. It never restarts otherwise. The
+setting is `infra/apt/52optlab-reboot`, which sorts after Ubuntu's `50unattended-upgrades`, so
+its values win:
+
+```bash
+sudo install -m 644 -o root -g root infra/apt/52optlab-reboot /etc/apt/apt.conf.d/52optlab-reboot
+apt-config dump | grep -E '^Unattended-Upgrade::Automatic-Reboot'
+#   Unattended-Upgrade::Automatic-Reboot "true";
+#   Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+#   Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+systemctl is-enabled docker.service containerd.service    # both "enabled": Docker starts at boot
+```
+
+The updates themselves install from `apt-daily-upgrade.timer` (about 06:00 to 07:00 UTC), and a
+restart they need waits for the next 04:00. unattended-upgrades then runs `shutdown -r 04:00`,
+which `shutdown --show` lists while it is pending (`sudo shutdown -c` cancels it). After the
+restart:
+
+- Docker starts at boot, and every service (`restart: unless-stopped`) starts again by itself;
+- the recorder misses a minute or two;
+- the jobs service records the boot time on its start-up run (`host_boots`), and the hourly
+  data checks label the missing minutes `server_reboot` next to `missing_snapshot`, so the gap
+  report says why they are missing.
+
+Nothing else runs at 04:00: the backup is at 00:30, the data checks at :05 past each hour, and
+the monthly restore test at 03:00 to about 03:10 on the 1st. To see whether a restart is
+waiting: `ls /var/run/reboot-required && cat /var/run/reboot-required.pkgs`.
 
 ## 7. Time: UTC with time sync
 
@@ -474,6 +503,41 @@ change anything.
 **On the laptop**, `uv run optlab-data sync 2026-11-13 2026-11-14` (or `--from`/`--to`,
 `--list`, `--raw`) pulls exported days into `data/exports/v1/` for backtests. It needs
 `rclone` (`sudo apt install rclone`) and the four `R2_` lines in the laptop's own `.env`.
+
+## 16. Rough paper service (Phase 2B)
+
+`paper` (`optlab-paper-rough`) runs the ROUGH credit-spread rule on the live recorded data, with
+paper fills only (docs/rough-version.md). It gets only `DATABASE_URL` and the three safety
+switches, no keys, and no port. It has a 512 MB memory limit and `restart: unless-stopped`. Its
+decisions, spreads, trades and equity are on the status page's "Paper trading (ROUGH)" tab.
+
+**Every migration also needs the recorder restarted on the new image.** The recorder refuses
+to start on any schema revision but its own. If it kept running an old image, its next restart
+(a crash or a 04:00 reboot) would fail. Restart only the services whose code changed, plus the
+recorder after a migration. Do it just after a minute boundary (the recorder writes each minute's
+snapshot a second or two after the minute), and always with `--no-deps`, so `db` is never
+recreated. Avoid 07:55 to 08:35 UTC (expiry, discovery and delivery prices), :05 past each hour
+(data checks) and 00:30 (backup). If a deploy could run into 00:30, stop `jobs` first and start
+it again afterwards.
+
+**Deploy of migration `0003`** (from `/srv/btc-options-lab`):
+
+```bash
+git pull --ff-only
+infra/dc build                                          # the image; running services keep the old one
+mkdir -p backups
+DUMP="backups/pre-migration-$(date -u +%Y%m%dT%H%MZ).dump"
+infra/dc exec -T db pg_dump -U optlab -d optlab -Fc </dev/null > "$DUMP"
+infra/dc exec -T db pg_restore --list < "$DUMP" | grep -c 'TABLE DATA'   # the dump reads back
+infra/dc run --rm --no-deps recorder alembic -c infra/alembic.ini upgrade head </dev/null
+# at hh:mm:02, just after a minute boundary:
+infra/dc up -d --no-deps recorder jobs dashboard paper
+infra/dc ps                                             # health keeps its old container
+infra/dc logs --tail 20 paper                           # "ROUGH paper service ... starting"
+```
+
+`infra/dc run --rm --no-deps paper optlab-paper-rough --once </dev/null` processes the latest
+snapshot once and prints what it did. With a decision already made that day, it changes nothing.
 
 ## If you are locked out
 

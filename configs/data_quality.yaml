@@ -1,5 +1,6 @@
 # Hourly data-quality checks (Phase 2): optlab.market_data.quality.
-# Proposed 14 Nov 2026 from the first 30 hours of recording; Damian to confirm or change.
+# Proposed 14 Nov 2026 from the first 30 hours of recording; confirmed by Damian on 15 Nov 2026,
+# to be re-checked on a few weeks of data.
 # A finding marked "skip" removes those snapshot minutes from backtests.
 
 # partial_snapshot (skip): a minute with option rows for fewer than this share of the options

@@ -190,3 +190,41 @@ def test_a_recheck_replaces_an_hours_results(database_url: str) -> None:
             "(SELECT count(*) FROM data_quality_runs) FROM data_quality"
         ).fetchone()
     assert counts == (1, 3)
+
+
+def test_host_boot_time_comes_from_proc_stat(tmp_path) -> None:
+    stat = tmp_path / "stat"
+    stat.write_text("cpu  1 2 3\nbtime 1763449240\nprocesses 7\n")
+    assert quality.host_boot_ms(stat) == 1763449240_000
+    stat.write_text("cpu 1 2 3\n")
+    assert quality.host_boot_ms(stat) is None
+    assert quality.host_boot_ms(tmp_path / "missing") is None
+
+
+@pytest.mark.db
+def test_a_server_restart_labels_its_gap(database_url: str) -> None:
+    """Reboot at 22:30:40: minutes 22:30 and 22:31 are lost and labelled server_reboot."""
+    populate(database_url, START, END)
+    boot = START + 30 * M + 40_000
+    t = ms_to_datetime
+    with psycopg.connect(database_url) as conn:
+        conn.execute(
+            "DELETE FROM option_quotes WHERE ts IN (%s, %s)", (t(START + 30 * M), t(START + 31 * M))
+        )
+        assert quality.record_boot(conn, boot, END)
+        assert not quality.record_boot(conn, boot + 1_000, END)  # btime jitter: the same boot
+        quality.record_boot(conn, START + 90 * M + 5_000, END)  # a restart that lost nothing
+        run_checks(conn, config(), END + 31 * M)
+        rows = conn.execute(
+            "SELECT check_name, utc_ms(start_ts), utc_ms(end_ts), skip, detail FROM data_quality "
+            "WHERE check_name IN ('missing_snapshot', 'server_reboot') ORDER BY start_ts, 1"
+        ).fetchall()
+        text = format_gap_report(gap_report(conn, END + 31 * M))
+    assert [(c, (a - START) // M, (b - START) // M, s) for c, a, b, s, _ in rows] == [
+        ("missing_snapshot", 30, 32, True),
+        ("server_reboot", 30, 32, True),
+        ("server_reboot", 90, 91, False),
+    ]
+    assert rows[1][4] == "server restarted (booted 2026-11-13 22:30:40 UTC)"
+    assert rows[2][4].endswith("; no minute lost")
+    assert "2026-11-13 22:30 to 22:32 UTC (2 min): missing_snapshot, server_reboot" in text

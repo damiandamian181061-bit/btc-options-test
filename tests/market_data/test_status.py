@@ -77,6 +77,9 @@ def test_the_status_page_renders(database_url: str, monkeypatch: pytest.MonkeyPa
 
     build(database_url)
     monkeypatch.setenv("DATABASE_URL", database_url)
+    import streamlit as st
+
+    st.cache_resource.clear()  # the page caches DATABASE_URL; each test has its own database
     app = AppTest.from_file(str(REPO_ROOT / "apps" / "dashboard" / "status.py"), default_timeout=30)
     app.run()
     assert not app.exception, app.exception
@@ -84,3 +87,7 @@ def test_the_status_page_renders(database_url: str, monkeypatch: pytest.MonkeyPa
     headers = [h.value for h in app.subheader]
     assert headers[:3] == ["Last tick per stream", "Recorder memory, last 24 hours", "Recent gaps"]
     assert any("above the 1 GB daily warning level" in w.value for w in app.warning)
+    # The rough paper tab, with no paper activity yet.
+    assert [t.label for t in app.tabs] == ["Recorder", "Paper trading (ROUGH)"]
+    assert any("not a result" in w.value for w in app.warning)
+    assert any("No daily decision yet" in i.value for i in app.info)

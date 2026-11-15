@@ -292,7 +292,7 @@ Decided on 25 October: no purchase. Backtests run on our own recording, which gr
 
 **What it is.** Tardis.dev records exchanges' live data feeds and sells the history. For Deribit it covers every instrument, including all options, since 30 March 2019.
 
-**Why VS Code can't replace it.*- VS Code is the editor where the code lives; it can't produce past market data. Deribit's API serves live quotes but not past order books, so the only sources are our own recorder, from today, or a vendor that recorded the past, like Tardis.
+**Why VS Code can't replace it.** VS Code is the editor where the code lives; it can't produce past market data. Deribit's API serves live quotes but not past order books, so the only sources are our own recorder, from today, or a vendor that recorded the past, like Tardis.
 
 **How it works.** You subscribe to a data plan (the Options plan covers Deribit options) and download daily CSV files.
 

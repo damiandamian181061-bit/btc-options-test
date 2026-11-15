@@ -5,10 +5,6 @@ could pick it up.
 
 - **Server setup as a script** (Phase 0). Turn `infra/server-setup.md` into an idempotent script,
   so a rebuild is one command after the Droplet exists. Phase 9 at the latest.
-- **Reboot policy for kernel updates** (Phase 0). Security updates install automatically, but
-  nothing reboots on its own, so new kernels wait. Options: a weekly scheduled reboot at a quiet
-  hour (the recorder restarts by itself in under 5 minutes), or a healthchecks alert when
-  `/var/run/reboot-required` exists. Phase 1 or 2, alongside the disk check.
 - **DigitalOcean metrics agent** (Phase 0). `do-agent` wasn't installed on recorder-1 even though
   monitoring was ticked. Damian may install it from the Droplet's Graphs tab; it doesn't affect the
   platform.
@@ -36,3 +32,11 @@ could pick it up.
 - **Smaller exports** (Phase 2). The nightly export sorts by instrument and time with zstd
   level 9. If R2 growth matters later, delta-encoding timestamps or dropping columns that never
   change within a day would shrink it further.
+- **Recorder accepts compatible schema revisions** (Phase 2B, Damian). The recorder refuses to
+  start on any revision but its own, so a migration that only adds paper or backtest tables
+  (like `0003`) still forces a recorder restart on the new image. Let it accept any later
+  revision that leaves its own tables unchanged, for example a list of recorder-compatible
+  revisions kept next to the migrations and checked by a test. Not for Phase 2B.
+- **Combo fills and the combo fee discount** (Phase 2B). Deribit charges nothing on the cheaper
+  direction of an option combo with buys and sells; the rough version fills leg by leg and pays
+  both. Phase 4 (fees) and Phase 8 (combo orders on testnet).

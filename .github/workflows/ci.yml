@@ -83,7 +83,7 @@ jobs:
 
       - name: The image refuses live trading
         run: |
-          for cmd in optlab-recorder "optlab-data gap-report"; do
+          for cmd in optlab-recorder "optlab-data gap-report" "optlab-paper-rough --once"; do
             out=$(docker run --rm -e LIVE_TRADING=true optlab:ci $cmd 2>&1 || true)
             echo "$out" | grep -q "LIVE_TRADING=true is refused"
           done
@@ -94,6 +94,10 @@ jobs:
           docker run --rm optlab:ci optlab-data --help | grep -q restore-test
           docker run --rm optlab:ci python -c "import streamlit, optlab.market_data.status"
           docker run --rm optlab:ci test -f apps/dashboard/status.py -a -f configs/data_quality.yaml
+          for f in fees/deribit.yaml strategies/rough.yaml risk/rough.yaml; do
+            docker run --rm optlab:ci test -f "configs/$f"
+          done
+          docker run --rm optlab:ci optlab-paper-rough --help | grep -q -- --once
 
   secret-scan:
     name: Secret scan (gitleaks, full history)

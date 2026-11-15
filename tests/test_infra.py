@@ -14,7 +14,7 @@ def compose(name: str = "compose.yaml") -> dict[str, Any]:
     return data
 
 
-APPS = ("recorder", "health", "jobs", "dashboard")
+APPS = ("recorder", "health", "jobs", "dashboard", "paper")
 R2_VARS = {"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT", "R2_BUCKET"}
 
 
@@ -49,6 +49,7 @@ def test_apps_get_only_the_settings_they_need() -> None:
         "health": {"HC_PING_URL_RECORDER", "HC_PING_URL_DISK"},
         "jobs": R2_VARS | {"HC_PING_URL_BACKUP"},
         "dashboard": set(),
+        "paper": set(),  # the rough paper service needs no keys: it sends nothing anywhere
     }
     for service in services.values():
         assert "env_file" not in service  # never hand a container the whole .env
@@ -137,6 +138,31 @@ def test_db_entrypoint_parses_database_url() -> None:
     script = (INFRA / "db" / "entrypoint.sh").read_text(encoding="utf-8")
     assert "unset DATABASE_URL" in script
     assert 'exec docker-entrypoint.sh "$@"' in script
+
+
+def test_the_rough_paper_service_runs_alone_with_a_memory_limit_and_no_port() -> None:
+    paper = compose()["services"]["paper"]
+    assert paper["command"] == ["optlab-paper-rough"]
+    assert paper["mem_limit"] == "512m"
+    assert paper["restart"] == "unless-stopped"
+    assert "ports" not in paper
+    assert set(paper["environment"]) == {
+        "DATABASE_URL",
+        "LIVE_TRADING",
+        "TRADING_MODE",
+        "DERIBIT_ENV",
+    }
+
+
+def test_unattended_upgrades_reboot_at_0400_utc_only_when_needed() -> None:
+    """Restart automatically at 04:00 (the server runs on UTC), only when an update needs it."""
+    text = (INFRA / "apt" / "52optlab-reboot").read_text(encoding="utf-8")
+    lines = {line.strip() for line in text.splitlines() if not line.lstrip().startswith("//")}
+    assert 'Unattended-Upgrade::Automatic-Reboot "true";' in lines
+    assert 'Unattended-Upgrade::Automatic-Reboot-WithUsers "true";' in lines
+    assert 'Unattended-Upgrade::Automatic-Reboot-Time "04:00";' in lines
+    # Sorts after Ubuntu's 50unattended-upgrades, so these values win.
+    assert "52optlab-reboot" > "50unattended-upgrades"
 
 
 def test_no_container_gets_the_docker_socket() -> None:

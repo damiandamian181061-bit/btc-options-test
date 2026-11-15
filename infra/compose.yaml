@@ -2,6 +2,8 @@
 #   infra/dc up -d --build      start everything, or rebuild and restart what changed
 #   infra/dc ps                 status
 #   infra/dc logs -f recorder   follow the recorder's log
+# Restart only what a change needs, just after a minute boundary and with --no-deps, so db is
+# never recreated: infra/dc up -d --no-deps recorder (infra/server-setup.md).
 # infra/dc refuses "config", which would print DATABASE_URL with its password. For the same
 # reason, never run "docker inspect" on these containers: it shows their environment.
 #
@@ -113,6 +115,20 @@ services:
     volumes:
       - ../data:/app/data
     mem_limit: 1g
+    stop_grace_period: 30s
+
+  # ROUGH (Phase 2B) paper service: the rough credit-spread rule on the live recorded data,
+  # paper fills only. It sends no orders anywhere, needs no keys and publishes no port; its
+  # decisions, spreads, trades and equity show on the status page (docs/rough-version.md).
+  paper:
+    <<: *app
+    command: ["optlab-paper-rough"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      LIVE_TRADING: ${LIVE_TRADING:-false}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      DERIBIT_ENV: ${DERIBIT_ENV:-public}
+    mem_limit: 512m
     stop_grace_period: 30s
 
   # The Phase 2 status page. Read-only database connection; localhost-only port.

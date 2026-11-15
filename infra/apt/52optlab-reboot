@@ -1,0 +1,9 @@
+// btc-options-lab reboot policy (decided 15 Nov 2026), copied to /etc/apt/apt.conf.d/.
+// When an automatic security update needs a restart (/var/run/reboot-required), restart the
+// server at the next 04:00 (the server's clock is UTC), even if someone is logged in. No
+// restart otherwise. Docker and every service start again on their own (restart:
+// unless-stopped); the data checks label the gap as server_reboot. See infra/server-setup.md.
+// Sorts after 50unattended-upgrades, so these values win.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";

@@ -95,6 +95,7 @@ def test_backup_pings_success_with_a_summary_and_failure_with_the_error(
         Settings(_env_file=None, database_url=database_url),  # type: ignore[arg-type]
         JobSettings(data_dir=data, config_dir=REPO_ROOT / "configs"),
         clock=lambda: utc_ms(2026, 11, 14, 1, 31),
+        boot_time=lambda: None,
     )
     assert jobs.backup()
     ok, message = pings[-1]
@@ -112,6 +113,26 @@ def test_backup_pings_success_with_a_summary_and_failure_with_the_error(
     assert not jobs.backup()
     assert pings[-1][0] is False
     assert "R2_ENDPOINT not set" in pings[-1][1]
+
+
+@pytest.mark.db
+def test_each_checks_run_records_the_server_boot_once(database_url: str) -> None:
+    populate(database_url, utc_ms(2026, 11, 13, 22), utc_ms(2026, 11, 14, 1))
+    boot = utc_ms(2026, 11, 13, 22, 30) + 40_000
+    jobs = Jobs(
+        Settings(_env_file=None, database_url=database_url),  # type: ignore[arg-type]
+        JobSettings(config_dir=REPO_ROOT / "configs"),
+        clock=lambda: utc_ms(2026, 11, 14, 1, 31),
+        boot_time=lambda: boot,
+    )
+    jobs.checks()
+    jobs.checks()
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute("SELECT boot_ms FROM host_boots").fetchall() == [(boot,)]
+        labels = conn.execute(
+            "SELECT count(*) FROM data_quality WHERE check_name = 'server_reboot'"
+        ).fetchone()
+    assert labels == (1,)  # the boot lost no minute: a one-minute label that skips nothing
 
 
 def test_restore_test_refuses_outside_its_throwaway_container(

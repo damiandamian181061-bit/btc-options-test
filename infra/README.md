@@ -1,9 +1,10 @@
 # infra
 
-- `server-setup.md`: how to create and harden the server from scratch, how to run the
-  recorder on it (section 14) and the data platform (section 15).
-- `compose.yaml`: the services (`db`, `recorder`, `health`, `jobs`, `dashboard`). Run it
-  through `dc`.
+- `server-setup.md`: how to create and harden the server from scratch (the reboot policy is in
+  section 6), how to run the recorder on it (section 14), the data platform (section 15) and
+  the rough paper service (section 16).
+- `compose.yaml`: the services (`db`, `recorder`, `health`, `jobs`, `dashboard`, and the
+  ROUGH `paper` service). Run it through `dc`.
 - `restore-test`, `restore-test.compose.yaml`: the restore test, in its own throwaway Compose
   project; `systemd/` runs it monthly.
 - `dc`: `docker compose` with the repo's `.env`; refuses `config`, which would print secrets.
@@ -11,7 +12,8 @@
 - `db/entrypoint.sh`: starts TimescaleDB with the user, password and database from
   `DATABASE_URL`.
 - `alembic.ini`, `migrations/`: the database schema. Back up before every migration on the
-  server.
+  server, and restart the recorder on the new image after it.
+- `apt/52optlab-reboot`: the unattended-upgrades reboot policy (04:00 UTC, only when needed).
 - `sql/`: the Phase 1 gate queries (`gap_check.sql`, `volume.sql`). The Phase 2 gap report is
   `optlab-data gap-report`.
 
