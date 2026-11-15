@@ -1,7 +1,8 @@
 """Nightly export, R2 upload and verification, local pruning, and the restore test.
 
 R2 is stood in for by a local folder through the real rclone binary (its ``local`` backend),
-so the exact rclone commands the server runs are exercised.
+so the exact rclone commands the server runs are exercised. The stand-in answers reads of
+missing objects the way R2 does (see ``R2Like``), not the way a local folder does.
 """
 
 import json
@@ -53,13 +54,34 @@ END = utc_ms(2026, 11, 14, 1)
 NOW = utc_ms(2026, 11, 14, 1, 31)
 
 
+class R2Like:
+    """Runs the real rclone against the local bucket folder, but reads of a missing object or
+    folder behave as on R2: ``rclone cat`` or ``lsf`` of a key that isn't there exits 0 and
+    prints nothing (an S3 store has no folders, so a missing key reads as an empty one). The
+    local backend says "not found" instead, which hid the failed 14 Nov 2026 nightly backup.
+    """
+
+    def __init__(self, bucket: Path) -> None:
+        self.bucket = bucket
+        self.empty_reads: list[str] = []
+
+    def __call__(self, command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        verb, target = command[3], command[-1]  # [binary, "--config", "", verb, ..., target]
+        if verb in ("cat", "lsf") and target.startswith("r2:"):
+            path = Path(target.removeprefix("r2:"))
+            if path.is_relative_to(self.bucket) and not path.exists():
+                self.empty_reads.append(verb)
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        return subprocess.run(command, **kwargs)  # noqa: S603 - the rclone the tests run
+
+
 def local_r2(tmp_path: Path, binary: str) -> tuple[Rclone, Path]:
     bucket = tmp_path / "bucket"
     bucket.mkdir()
     config = RemoteConfig(
         bucket=str(bucket), env={"RCLONE_CONFIG_R2_TYPE": "local"}, secrets=("s3cr3t",)
     )
-    return Rclone(config, binary=binary), bucket
+    return Rclone(config, binary=binary, runner=R2Like(bucket)), bucket
 
 
 def write_raw(data_dir: Path, day: date, hours: int = 2) -> list[Path]:
@@ -220,6 +242,25 @@ def test_r2_settings_must_all_be_present() -> None:
         r2_config(Settings(_env_file=None, r2_access_key_id=SecretStr("k"), r2_bucket="b"))
 
 
+def test_a_manifest_exists_only_if_listed_never_because_cat_printed_nothing(
+    tmp_path: Path, rclone_binary: str
+) -> None:
+    rclone, bucket = local_r2(tmp_path, rclone_binary)
+    key = "exports/v1/manifests/2026-11-14.json"
+    # As on R2: reading a missing key succeeds and prints nothing.
+    assert rclone.run("cat", rclone.config.target(key)).stdout == ""
+    assert rclone.get(key) is None
+
+    (bucket / "exports/v1/manifests").mkdir(parents=True)
+    (bucket / key).write_bytes(b'{"dataset_version": "abc"}\n')
+    assert rclone.get(key) == b'{"dataset_version": "abc"}\n'
+
+    # Listed but empty: an error, never taken as "no manifest".
+    (bucket / "exports/v1/manifests/2026-11-15.json").write_bytes(b"")
+    with pytest.raises(RcloneError, match="printed nothing"):
+        rclone.get("exports/v1/manifests/2026-11-15.json")
+
+
 @pytest.mark.db
 def test_back_up_uploads_verifies_and_records_the_day(
     database_url: str, tmp_path: Path, rclone_binary: str
@@ -345,7 +386,9 @@ def test_every_operation_uses_only_reading_or_immutable_upload_commands(tmp_path
 
     def record(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         seen.append(command)
-        return subprocess.CompletedProcess(command, 0, "", "")
+        listing = "x.json\n" if command[3] == "lsf" and command[-1] == "r2:b/raw/manifests" else ""
+        content = "{}" if command[3] == "cat" else ""
+        return subprocess.CompletedProcess(command, 0, listing or content, "")
 
     rclone = Rclone(RemoteConfig(bucket="b", env={}), runner=record)
     (tmp_path / "m.json").write_text("{}")
@@ -353,10 +396,11 @@ def test_every_operation_uses_only_reading_or_immutable_upload_commands(tmp_path
     rclone.verify(tmp_path, "raw", ["a"])
     rclone.download("raw", tmp_path / "d", ["a"])
     rclone.put(tmp_path / "m.json", "raw/manifests/m.json")
-    rclone.get("raw/manifests/x.json")
+    assert rclone.get("raw/manifests/x.json") == b"{}"  # listed: lsf, then cat
+    assert rclone.get("exports/v1/manifests/y.json") is None  # not listed: lsf only
     rclone.names("exports/v1/manifests")
     commands = [c[3] for c in seen]  # after "rclone --config ''"
-    assert commands == ["copy", "check", "copy", "copy", "cat", "lsf"]
+    assert commands == ["copy", "check", "copy", "copy", "lsf", "cat", "lsf", "lsf"]
     uploads = [c for c in seen if c[3] == "copy" and c[-1].startswith("r2:")]
     assert len(uploads) == 2
     for c in uploads:

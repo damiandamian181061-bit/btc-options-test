@@ -196,13 +196,20 @@ class Rclone:
         self.upload(local_file.parent, folder, [name])
 
     def get(self, path: str) -> bytes | None:
-        """A small object's bytes (manifests), or None if it doesn't exist."""
-        result = self.run("cat", self.config.target(path), check=False)
-        if result.returncode == 0:
-            return result.stdout.encode()
-        if "not found" in result.stderr or "doesn't exist" in result.stderr:
+        """A small object's bytes (manifests), or None if it isn't listed in the bucket.
+
+        Whether the object exists is decided by listing its folder (``lsf``) first, never by
+        what ``cat`` prints: on R2, as on any S3 store, ``cat`` of a missing key exits 0 and
+        prints nothing. ``cat`` runs only for a listed object, and one that reads back empty
+        is an error.
+        """
+        folder, _, name = path.rpartition("/")
+        if name not in self.names(folder):
             return None
-        raise RcloneError(f"rclone cat failed: {self.scrub(result.stderr.strip())[-2000:]}")
+        data = self.run("cat", self.config.target(path)).stdout.encode()
+        if not data:
+            raise RcloneError(f"rclone cat printed nothing for {path}, which is listed in R2")
+        return data
 
     def names(self, prefix: str) -> list[str]:
         """File names directly under ``prefix`` (empty if it doesn't exist)."""
