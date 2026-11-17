@@ -698,6 +698,13 @@ Decisions made during Phase 0 (9 Nov):
   yes. That project's own guide plans a separate small Droplet. Damian's call: move it to its
   own Droplet and put recorder-1 back to SSH-only (recommended), or keep it here and record the
   exception.
+- **The GitHub repo is now public and renamed `btc-options-test` (found 17 Nov 2026 at 14:46
+  UTC).** It was created private on 27 Oct, and the plan is private until v1.0. GitHub last
+  updated the repo at 14:35:56 UTC on 17 Nov; pushes to the old name still work through
+  GitHub's redirect. A scan of all 14 commits found no server address, no Cloudflare account
+  ID, no R2 endpoint and no ping URL (only the secret scanner's keyword rules and made-up test
+  values), and CI's gitleaks full-history scan is green. Damian's call: make it private again
+  (recommended until v1.0), or keep it public; and whether to keep the new name.
 - **Open interest delay.** Deribit's ticker docs say `open_interest` is reported with a delay.
   Stored as given; Phase 3 should check it before using it.
 - JEV details (inputs, outputs, determinism, speed and cost per call, training dates, whether it
