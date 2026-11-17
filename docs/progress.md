@@ -668,7 +668,8 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Damian decides what to do about the second project on recorder-1 (open question below).
+1. Damian decides whether the GitHub repo goes private again (open question below). The second
+   project stays on recorder-1 (decided 17 Nov).
 2. Build Brief update for Phase 2B (Damian said yes): `docs/brief.md` and the folder copy. The
    live Build Brief on claude.ai can only be edited from claude.ai.
 3. Working notes in `CLAUDE.md` for working without the helper chat (proposed 17 Nov, waiting
@@ -681,7 +682,8 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Open questions
 
-- **A second project on recorder-1 (found 17 Nov 2026).** Between 00:44 and 01:18 UTC on 17 Nov,
+- **A second project on recorder-1 (found 17 Nov 2026; Damian decided 17 Nov: keep it there).**
+  Between 00:44 and 01:18 UTC on 17 Nov,
   the setup of another of Damian's projects (a password-protected web mirror of its dashboard)
   was run against this server, from keys made on Damian's laptop at 00:14 UTC:
   - the server was powered off and on from DigitalOcean (00:51:56 to 00:52:32; one snapshot
@@ -695,9 +697,22 @@ Decisions made during Phase 0 (9 Nov):
   Nothing of this project was touched, and the other project's containers use about 127 MiB.
   But it breaks three of this project's rules: the server firewall is SSH-only, nothing
   listens on a public port, and the recorder's server changes only with a reason and Damian's
-  yes. That project's own guide plans a separate small Droplet. Damian's call: move it to its
-  own Droplet and put recorder-1 back to SSH-only (recommended), or keep it here and record the
-  exception.
+  yes. That project's own guide plans a separate small Droplet.
+
+  **Decision (Damian, 17 Nov 2026): keep it on recorder-1.** Recorded as an agreed exception:
+  - recorder-1 now hosts two projects. Ports 80 and 443 are open to the internet for the
+    other project's Caddy only. This project's own rule is unchanged: none of its containers
+    publishes a port (still test-enforced), and the status page stays on 127.0.0.1. Phase 6
+    still publishes through Cloudflare Tunnel.
+  - Claude Code doesn't change, restart or remove anything of the other project
+    (`btc-dashboard`, `/opt/btc-strategy`, `/srv/btc-data`, user `btcsync`), and doesn't stop
+    it to free memory without Damian's yes.
+  - Its memory counts in this project's budget: about 127 MiB of the server's 3.8 GiB (1.9 GiB
+    available on 17 Nov). Phase 3's new worker checks free memory first.
+  - Work on the other project that can stop or restart the server (DigitalOcean power
+    actions, resizes, firewall changes) costs recorder minutes. Better done outside 07:55 to
+    08:35 UTC, 00:30 and 09:00, as for this project's own deploys.
+  - The status check reports both projects' containers, so anything new shows up.
 - **The GitHub repo is now public and renamed `btc-options-test` (found 17 Nov 2026 at 14:46
   UTC).** It was created private on 27 Oct, and the plan is private until v1.0. GitHub last
   updated the repo at 14:35:56 UTC on 17 Nov; pushes to the old name still work through
@@ -715,6 +730,8 @@ Decisions made during Phase 0 (9 Nov):
 
 Closed on 17 Nov 2026:
 
+- **The second project on recorder-1:** kept there as an agreed exception (see the open
+  question above for the terms).
 - **Nothing traded by the 2B gate:** option A (gate open until the first rough trade; Phase 3
   meanwhile).
 - **The pending libc6 restart:** applied by the 17 Nov 00:52 boot; every service came back by
