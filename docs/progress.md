@@ -668,8 +668,9 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Damian decides whether the GitHub repo goes private again (open question below). The second
-   project stays on recorder-1 (decided 17 Nov).
+1. Damian's OK on the `CLAUDE.md` working notes; whether healthchecks.io sent any email after
+   the 17 Nov restart; whether `btc-vol-models` is still in his GitHub account (Phase 3 needs
+   it). The second project stays on recorder-1 and the repo stays public (both decided 17 Nov).
 2. Build Brief update for Phase 2B (Damian said yes): `docs/brief.md` and the folder copy. The
    live Build Brief on claude.ai can only be edited from claude.ai.
 3. Working notes in `CLAUDE.md` for working without the helper chat (proposed 17 Nov, waiting
@@ -718,8 +719,19 @@ Decisions made during Phase 0 (9 Nov):
   updated the repo at 14:35:56 UTC on 17 Nov; pushes to the old name still work through
   GitHub's redirect. A scan of all 14 commits found no server address, no Cloudflare account
   ID, no R2 endpoint and no ping URL (only the secret scanner's keyword rules and made-up test
-  values), and CI's gitleaks full-history scan is green. Damian's call: make it private again
-  (recommended until v1.0), or keep it public; and whether to keep the new name.
+  values), and CI's gitleaks full-history scan is green.
+
+  **Decision (Damian, 17 Nov 2026): keep it public**, under the new name. What follows from it:
+  - every push is public at once, so the rules on secrets, the server address, the R2
+    endpoint and the Cloudflare account ID now apply to each commit, not just at release.
+    Before each push: the pre-commit hooks (gitleaks), and a search of the diff for those
+    values from the command line;
+  - Phase 9's "make the repo public" step is already done; its full-history scan and README
+    still come first in that phase;
+  - until the MIT licence is added (Phase 9), the code is visible but not licensed for reuse;
+  - the laptop's remote points at the new name. The server's checkout still uses the old
+    name through GitHub's redirect; switching it is a server change, done at the next
+    deploy with Damian's yes.
 - **Open interest delay.** Deribit's ticker docs say `open_interest` is reported with a delay.
   Stored as given; Phase 3 should check it before using it.
 - JEV details (inputs, outputs, determinism, speed and cost per call, training dates, whether it
@@ -732,6 +744,7 @@ Closed on 17 Nov 2026:
 
 - **The second project on recorder-1:** kept there as an agreed exception (see the open
   question above for the terms).
+- **The GitHub repo:** stays public as `btc-options-test` (terms above).
 - **Nothing traded by the 2B gate:** option A (gate open until the first rough trade; Phase 3
   meanwhile).
 - **The pending libc6 restart:** applied by the 17 Nov 00:52 boot; every service came back by
