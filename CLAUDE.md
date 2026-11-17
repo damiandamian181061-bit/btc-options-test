@@ -113,7 +113,33 @@ Each rule holds unless Damian changes it.
   `deploy` with Damian's SSH key; root login and passwords are refused. Damian gives the IP address
   in chat. Never write it, the R2 endpoint or the Cloudflare account ID into any file: use
   placeholders such as `SERVER_IP`. The repo lives at `/srv/btc-options-lab`, pulled with a
-  read-only deploy key. The firewall is the DigitalOcean cloud firewall `ssh-only`; containers must
-  not publish ports to the internet.
+  read-only deploy key. The firewall is the DigitalOcean cloud firewall; this project's
+  containers must not publish ports to the internet (ports 80 and 443 are open only for
+  Damian's other project, below).
 - **Commits.** Use Damian's GitHub no-reply address (set in this repo's local git config), never
   a personal email.
+
+### Working without the helper chat (from 17 Nov 2026)
+
+Damian works only in Claude Code; there is no claude.ai helper chat checking the work. So:
+
+- **Check things yourself** and explain them to Damian in plain words.
+- **Server changes need a typed yes.** Before anything that changes the server (`sudo`,
+  `docker compose up`/`restart`/`stop`, migrations, `rm`, `systemctl`, reboot, `.env`, R2),
+  say what it does and why, then wait for Damian to type yes. Read-only looks (`select`, `ps`,
+  `logs`, `df`, `du`, `free`) need no yes.
+- **Server clock.** Time server steps by `ssh … date -u`, never the laptop's clock (WSL drifts
+  after sleep).
+- **Deploys** (infra/server-setup.md section 16): `pg_dump` before every migration and read it
+  back with `pg_restore --list`; the migration in a one-off container; restart only what
+  changed, plus the recorder after a migration, at :02 past a minute with `--no-deps`; never
+  recreate `db`. Avoid 07:55–08:35 UTC, :05 past each hour, 00:30 (pause `jobs` if a deploy
+  could run into it) and 09:00.
+- **Finance questions** as numbered options, with a recommendation and the reason in finance
+  terms. Never loosen a rule to force a trade.
+- **Check before claiming.** Before saying a gate passed, check each claim against the repo, CI
+  and the server, and list anything assumed rather than checked.
+- **Never in any file:** the server address, the R2 endpoint, the Cloudflare account ID, ping
+  URLs. The repo is public (since 17 Nov 2026), so search each diff for them before pushing.
+- **The other project on recorder-1** (`btc-dashboard`, `/opt/btc-strategy`, `/srv/btc-data`,
+  user `btcsync`) is Damian's and is not ours to change, restart or remove.
