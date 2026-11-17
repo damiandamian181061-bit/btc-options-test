@@ -135,7 +135,7 @@ It is the first real test that everything comes back by itself after a restart:
 | `jobs` | Restarted, recorded the boot, backup check pinged OK |
 | Restore timer | Active again, next run Tue 1 Dec 03:06 UTC |
 | Kernel | Unchanged, 7.0.0-43 (the update was libc6 only) |
-| healthchecks.io | Damian to report |
+| healthchecks.io | No alert email (Damian, 17 Nov): the recorder was down about a minute, inside the 5-minute grace |
 
 The 04:00 policy itself has still not fired; it will the next time an update needs a restart.
 
@@ -668,9 +668,10 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Damian's OK on the `CLAUDE.md` working notes; whether healthchecks.io sent any email after
-   the 17 Nov restart; whether `btc-vol-models` is still in his GitHub account (Phase 3 needs
-   it). The second project stays on recorder-1 and the repo stays public (both decided 17 Nov).
+1. Damian's OK on the `CLAUDE.md` working notes. Answered 17 Nov: no healthchecks.io email
+   after the restart; `btc-vol-models` is public in Damian's account (branch `main`, latest
+   commit `4bb1cb1`), ready for Phase 3's golden tests. The second project stays on
+   recorder-1 and the repo stays public (both decided 17 Nov).
 2. Build Brief update for Phase 2B (Damian said yes): `docs/brief.md` and the folder copy. The
    live Build Brief on claude.ai can only be edited from claude.ai.
 3. Working notes in `CLAUDE.md` for working without the helper chat (proposed 17 Nov, waiting

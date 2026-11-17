@@ -73,18 +73,19 @@ Every disagreement between the team plan and blueprint v1.1 is now settled, most
 | Paper capital | 100,000 USDC | Raised from 50,000 on 25 October. |
 | Ranking weights | α 97.5%, λ 1, κ 0, μ 0 to start | Confirmed. Tuned on validation data only. |
 | Dashboard | Streamlit, public and read-only at damiantrades.com, or damian00trades.com if it's taken. | Nothing on the public site can change the system; admin actions run from your laptop. |
-| Repo | `btc-options-lab`, created private in Phase 0, public with an MIT licence at release. Old site linked in the README as v1. | Confirmed. The server deploys from it. |
+| Repo | `btc-options-test` (renamed from `btc-options-lab`), public; MIT licence at release. Old site linked in the README as v1. | Kept public by your decision on 17 November 2026. The server deploys from it. |
 | Backups | Cloudflare R2, capped at about $10 a month, with a $5 budget alert; bucket and key created 28 October. Alerts by email from healthchecks.io, set up 27 October. |  |
 | Claude plan | Pro for now (decided 9 November); upgrade to Max if usage limits slow the build. | See Costs. |
 | Claude Code set-up | Opus 5.5 at xhigh effort, saved as the default. Manual permission mode by default; accept edits may be switched on for a session; no auto mode for now. SSH key loaded with keychain. | Decided 9 November. Auto mode to be reconsidered for the laptop-only coding from Phase 3. |
-| Server access | Admin user deploy: key-only login, passwordless sudo. Root and password logins off. ufw off: the cloud firewall ssh-only stays attached, and containers never publish ports. | Done 9 November. Rebuild steps in infra/server-setup.md. |
-| Server upkeep | Security updates install automatically, but the server never reboots itself, and Docker is updated by hand. UTC time with chrony; 2 GB swap. DigitalOcean's metrics agent isn't installed. | Done 9 November. Reboot policy for kernel updates still to decide, after the Phase 1 gate. |
+| Server access | Admin user deploy: key-only login, passwordless sudo. Root and password logins off. ufw off. This project's containers never publish ports; ports 80 and 443 are open only for your other project's dashboard, which shares this server. | Done 9 November. The second project was kept here by your decision on 17 November 2026. Rebuild steps in infra/server-setup.md. |
+| Server upkeep | Security updates install automatically. When one needs a restart, the server restarts by itself at 04:00 UTC, and only then; Docker and every service start again on their own, and the gap is labelled server\_reboot. Docker is updated by hand. UTC time with chrony; 2 GB swap. DigitalOcean's metrics agent isn't installed. | Done 9 November; reboot policy decided 15 November 2026. On 17 November a restart brought every service back by itself, with one minute missed. |
 | GitHub access | GitHub CLI (gh) from GitHub's own apt source, with Git over HTTPS. The server pulls the repo into /srv/btc-options-lab with a read-only deploy key. | Done 10 November. The deploy key was added through gh, so the laptop stays signed in to gh. |
 | Server .env | You pasted the R2 and healthchecks values yourself (10 November). The database password was generated on the server and written in without ever being displayed (13 November). | Only the deploy user can read it. |
 | Recorder data rules | IVs stored as decimals (Deribit sends percent). An empty bid or ask is stored as blank, never as 0. One point-in-time row per option per minute; each trade stored once. Instruments read from Deribit's metadata, never parsed from names. | Decided 12–13 November. |
 | Phase 1 gate rule | Strict: no more than 5 minutes between any two recorded minutes across the 24 hours, with missing minutes at either end counting. | Decided 13 November. The query is infra/sql/gap\_check.sql. |
 | Tests and deploys | Database tests must run in CI: without a test database they fail rather than skip. CI also builds the Docker image and checks it refuses LIVE\_TRADING=true. A pg\_dump backup before every database migration on the server. | Since 13 November. |
 | Old-site API keys | Not reused. Any key this project needs is made fresh. | Decided 14 November. |
+| Phase 2 decisions | BTC\_USDC linear is the main book; the inverse book keeps being recorded as the fallback. No entry when no BTC\_USDC expiry is 7 to 30 days away (no switch to inverse). Data-quality thresholds confirmed. Flag scope: an option's flag blocks only spreads using it; a flag on an expiry's future blocks that expiry; global flags block every entry. The minimum credit stays 20% of the width for v1. | Decided 15 November 2026. Alternatives to the minimum credit are tested in Phase 5 on validation data only. |
 
 **Database: TimescaleDB is PostgreSQL with an add-on, so we get both.** PostgreSQL is the database; TimescaleDB is an extension installed inside it. Ordinary tables (instruments, orders, backtest results) stay plain PostgreSQL.
 
@@ -453,6 +454,8 @@ Eleven phases, each closed by a gate. Working full days, Phases 0 to 9 fit into 
 | 10 · Challenger models | Week 5, after v1.0 | Each challenger promoted or rejected on evidence |
 
 The dashboard and paper trading overlap the phases above them, and a rough end-to-end version runs by the end of week 1.
+
+Phase 2B status: deployed on 15 November 2026 at 15:30 UTC. Its gate was checked on 17 November: the paper service ran over 24 hours and decides daily, but no rough trade yet (implied vol below realised vol each day). The gate stays open until the first rough trade shows, and Phase 3 starts meanwhile; the rules are not loosened.
 
 ### Phase 0: Setup (week 1, days 1–2)
 
