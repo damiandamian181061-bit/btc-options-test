@@ -10,7 +10,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | 0 · Setup | Week 1 · days 1–2 | CI is green, Damian can SSH in as `deploy`, root login is refused, and `docker run hello-world` works on the server (backups and alerts configured) | **Passed** 10 Nov 2026 |
 | 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | **Passed** 14 Nov 2026 (raw-stream cap chosen 14 Nov) |
 | 2 · Data and checks | Week 1 · days 4–7 | Restore from R2 works; the gap report covers every recorded day; the liquidity report names the book | **Passed** 15 Nov 2026 |
-| 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | **Running** since 15 Nov 2026 15:30 UTC; gate check after 16 Nov 15:30 UTC |
+| 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | **Gate open** (checked 17 Nov 2026): ran over 24 h and decides daily, shortcut list exists, but no rough trade yet; open until the first one shows (Damian's option A), Phase 3 may start meanwhile |
 | 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | Open |
 | 4 · Backtest engine | Weeks 2–3 | Determinism, leakage and reconciliation tests pass on a real week; hand-checked smoke trade matches | Open |
 | 5 · Strategies and results | Week 3 | Full report of v1 rules vs every benchmark on the locked test, after costs | Open |
@@ -22,9 +22,10 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 ## Current phase
 
-Phase 2B · Rough end-to-end version: **deployed and running** since 15 November 2026 15:30
-UTC; the gate (24 hours of running, trades on the page, the shortcut list) is checked after
-16 Nov 15:30 UTC.
+Phase 2B · Rough end-to-end version: **running** since 15 November 2026 15:30 UTC. Gate
+checked on 17 Nov (below): two of its three parts pass; "shows its trades" waits for the first
+rough trade. Under Damian's option A the gate stays open until then, and Phase 3 may start
+meanwhile. The rules are not loosened to force a trade.
 
 Running on recorder-1, at commit `9ccff8e`:
 
@@ -35,6 +36,108 @@ Running on recorder-1, at commit `9ccff8e`:
 - `paper`: the ROUGH paper service.
 
 The restore test runs monthly from a systemd timer.
+
+Since 17 Nov 01:09 UTC the server also runs another of Damian's projects (Compose project
+`btc-dashboard`, not part of this repo); see "Open questions".
+
+## Phase 2B · Gate check (17 Nov 2026)
+
+Checked on 17 Nov 2026, 14:40 to 14:45 UTC (server clock), read-only: nothing on the server
+was changed. Server checkout `9ccff8e`.
+
+| Gate part | Result |
+| --- | --- |
+| Paper service runs 24 hours | **Pass.** 33 h 21 min without a restart, then back on its own after the server restart |
+| The page shows its trades | **Not yet.** Three daily decisions, all "no trade" with the reason; no spread opened |
+| Shortcut list exists | **Pass.** `docs/rough-version.md`, 28 numbered rows |
+
+**Run record** (`rough_runs`):
+
+| Run | From | To | Minutes processed | Skipped | Note |
+| --- | --- | --- | --- | --- | --- |
+| `20261115T153016Z-e04fee` | 15 Nov 15:30:16 | 17 Nov 00:51:08 | 2,002 | 0 | ended by the server power-off at 00:51:56 |
+| `20261117T005252Z-aa05e3` | 17 Nov 00:52:52 | still running (14:42) | 830 | 1 | started by itself after the boot |
+
+Docker restart count 0. Memory 94.6 MiB of its 512 MiB limit at 14:40. `rough_equity` has one
+row per processed minute (2,831 rows, 15 Nov 15:30 to 17 Nov 14:42), all 100,000 USDC with no
+open spread. Equity minutes match snapshot minutes each day (510/510, 1,440/1,440, 881/882; the
+one difference is the skipped minute).
+
+**Daily decisions** (`rough_decisions`):
+
+| Day | Decided (UTC) | IV30 | RV30 | Index | 20-day average | Action | Reason |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 15 Nov | 15:30:16 (first start) | 41.47% | 43.98% | 64,600.74 | 75,478.20 | no trade | IV30 41.47% is not above RV30 43.98% |
+| 16 Nov | 09:00:04 | 39.80% | 44.20% | 64,404.86 | 74,741.05 | no trade | IV30 39.80% is not above RV30 44.20% |
+| 17 Nov | 09:00:04 | 41.35% | 44.23% | 64,276.68 | 73,927.29 | no trade | IV30 41.35% is not above RV30 44.23% |
+
+Implied volatility has stayed 2.5 to 4.4 points below realised since the deploy, so the
+volatility filter has blocked every day before any spread was looked at. `rough_spreads` and
+`rough_fills` are empty, so there is no trade to work by hand.
+
+**Gap report** (`optlab-data gap-report`, run 17 Nov at about 14:42 UTC):
+
+| UTC day | Hours checked | Minutes recorded / expected | Option rows | Skipped minutes | Longest gap | Findings |
+| --- | --- | --- | --- | --- | --- | --- |
+| 15 Nov | 24/24 | 1440/1440 | 2,523,820 | 0 | 1 min | empty_book 1,878 |
+| 16 Nov | 24/24 | 1440/1440 | 2,361,204 | 0 | 1 min | empty_book 2,679, stale_quote 1,344 |
+| 17 Nov (to 14:00) | 14/14 | 839/840 | 1,309,733 | 2 | 2 min | empty_book 676, missing_snapshot 1, partial_snapshot 1, server_reboot 1, stale_index 2 |
+
+Skipped periods since the deploy: 17 Nov 00:52 to 00:53 (missing_snapshot, server_reboot,
+stale_index) and 17 Nov 11:06 to 11:07 (partial_snapshot). The 1,344 stale_quote findings on
+16 Nov are quotes over 120 s old; they remove no minute. They go into the threshold re-check
+on more data (Phase 5).
+
+**Nightly backups:** both succeeded and pinged OK.
+
+| Run (UTC) | Day | Rows | Export | Raw files | Dataset version |
+| --- | --- | --- | --- | --- | --- |
+| 16 Nov 00:32:03 | 15 Nov | 2,576,335 | 83.9 MB | 50, 311.6 MB | `d9ee47914f44…` |
+| 17 Nov 00:32:17 | 16 Nov | 2,409,924 | 76.5 MB | 48, 331.7 MB | `6ec6a5c196fc…` |
+
+**BTC_USDC 4 Dec expiry: still not listed.** Deribit's live list on 17 Nov 14:43 UTC: 18, 19,
+20, 21 and 27 Nov, 25 Dec, 26 Mar. So from 20 Nov 08:00 to 25 Nov 08:00 UTC no BTC_USDC expiry
+is 7 to 30 days away, and the rule makes no entry on those days.
+
+**Damian's decision: option A** (his standing answer, 17 Nov 2026). The gate stays open until
+the first rough trade shows on the page; Phase 3 starts meanwhile, because it is laptop work
+that doesn't touch the paper service. The rules are not loosened. Phase 2B is marked passed
+only when a live rough trade appears.
+
+**Two Phase 2 jobs settled:**
+
+- the R2 lifecycle rule was added on 15 Nov 2026 at 02:17 UTC (prefix `raw/`, delete 548 days
+  after upload, enabled);
+- the laptop sync is postponed to Phase 4, with a read-only R2 token and rclone 1.75.2 (the
+  pinned version, not Ubuntu's apt package).
+
+### The server restart on 17 Nov 2026
+
+The server did **not** restart under the 04:00 policy. On 16 Nov at 06:57 unattended-upgrades
+scheduled `shutdown -r 04:00` for 17 Nov, as expected. But at **00:51:56 UTC** on 17 Nov the
+server was powered off from DigitalOcean (`systemd-logind`: "Power key pressed short", the
+control panel's or API's power button) while another of Damian's projects was being set up
+(see "Open questions"). It booted again at **00:52:32**. That boot applied the waiting libc6
+update and cleared the scheduled 04:00 restart.
+
+It is the first real test that everything comes back by itself after a restart:
+
+| After-check | Result |
+| --- | --- |
+| All six services Up without help | Yes, all started at 00:52:45; Docker restart counts 0 |
+| Recorder writing again | Yes: rows at 00:51 and from 00:53 (1,586 options a minute); 1,530 a minute at 14:40 |
+| Snapshot minutes missed | One: 00:52 |
+| Missing minute labelled | Yes: `missing_snapshot`, `server_reboot`, `stale_index` |
+| `/var/run/reboot-required` | Gone |
+| Scheduled shutdown | None |
+| New `host_boots` row | Boot 00:52:32, first seen 00:52:54 |
+| Paper service resumed | Yes, new run at 00:52:52 |
+| `jobs` | Restarted, recorded the boot, backup check pinged OK |
+| Restore timer | Active again, next run Tue 1 Dec 03:06 UTC |
+| Kernel | Unchanged, 7.0.0-43 (the update was libc6 only) |
+| healthchecks.io | Damian to report |
+
+The 04:00 policy itself has still not fired; it will the next time an update needs a restart.
 
 ## Phase 2B · Rough end-to-end version (15 Nov 2026)
 
@@ -565,27 +668,36 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. **After 16 Nov 15:30 UTC: check the Phase 2B gate** ("Check the Phase 2B gate and report").
-   The checks: `rough_runs` covers 24 hours (minutes processed and skipped), the page shows the
-   decisions and any trades, and `docs/rough-version.md` exists. If no trade has happened, the
-   report says so.
-2. Damian, by hand:
-   - still open from Phase 2: the R2 lifecycle rule in the Cloudflare dashboard (prefix `raw/`,
-     delete objects 548 days after upload), and, for laptop backtests, `sudo apt install
-     rclone` with the four `R2_` lines in the laptop's own `.env`;
-   - update the live Build Brief:
-     - "Decisions so far": the Server upkeep row now has automatic restarts at 04:00 UTC when
-       an update needs one;
-     - "Decisions so far": the Phase 2 decisions above;
-     - Phase 2B: running;
-   - if you'd rather not have the 17 Nov 04:00 restart, run `sudo shutdown -c` on the server
-     after about 07:00 UTC on 16 Nov, or ask me to;
-   - the laptop's WSL clock: in PowerShell, `wsl --shutdown`, then open Ubuntu again, and
-     `date -u` should match the real UTC time.
-3. Phase 3 · Pricing and volatility surface (Prompt 3), after the 2B gate.
+1. Damian decides what to do about the second project on recorder-1 (open question below).
+2. Build Brief update for Phase 2B (Damian said yes): `docs/brief.md` and the folder copy. The
+   live Build Brief on claude.ai can only be edited from claude.ai.
+3. Working notes in `CLAUDE.md` for working without the helper chat (proposed 17 Nov, waiting
+   for Damian's OK).
+4. Phase 3 · Pricing and volatility surface, under option A, while the 2B gate waits for the
+   first rough trade. Every daily status check also looks for that trade.
+5. Dates: 20 Nov 08:00 UTC the 20 Nov expiry settles (no BTC_USDC entries possible 20 Nov 08:00
+   to 25 Nov 08:00 unless Deribit lists 4 Dec); 21 Nov the first full recorded week (14 to 20
+   Nov) is complete, which Phase 4 needs; 1 Dec about 03:06 UTC the first monthly restore test.
 
 ## Open questions
 
+- **A second project on recorder-1 (found 17 Nov 2026).** Between 00:44 and 01:18 UTC on 17 Nov,
+  the setup of another of Damian's projects (a password-protected web mirror of its dashboard)
+  was run against this server, from keys made on Damian's laptop at 00:14 UTC:
+  - the server was powered off and on from DigitalOcean (00:51:56 to 00:52:32; one snapshot
+    minute lost, labelled);
+  - a second admin key, `btc-droplet-admin`, was added to `deploy`, and a new user `btcsync`
+    (password locked, one key, upload target `/srv/btc-data`) was created;
+  - files in `/opt/btc-strategy`, and the Compose project `btc-dashboard`: an app container
+    and Caddy, which **publishes ports 80 and 443 to the internet**. Port 80 answers from the
+    laptop, so the cloud firewall no longer allows SSH only.
+
+  Nothing of this project was touched, and the other project's containers use about 127 MiB.
+  But it breaks three of this project's rules: the server firewall is SSH-only, nothing
+  listens on a public port, and the recorder's server changes only with a reason and Damian's
+  yes. That project's own guide plans a separate small Droplet. Damian's call: move it to its
+  own Droplet and put recorder-1 back to SSH-only (recommended), or keep it here and record the
+  exception.
 - **Open interest delay.** Deribit's ticker docs say `open_interest` is reported with a delay.
   Stored as given; Phase 3 should check it before using it.
 - JEV details (inputs, outputs, determinism, speed and cost per call, training dates, whether it
@@ -593,6 +705,15 @@ Decisions made during Phase 0 (9 Nov):
 - The DigitalOcean metrics agent (`do-agent`) is not installed on recorder-1, although the brief
   says monitoring is on. Install it from the Droplet's Graphs tab if you want the graphs (see
   `docs/later.md`).
+
+Closed on 17 Nov 2026:
+
+- **Nothing traded by the 2B gate:** option A (gate open until the first rough trade; Phase 3
+  meanwhile).
+- **The pending libc6 restart:** applied by the 17 Nov 00:52 boot; every service came back by
+  itself.
+- **R2 lifecycle rule:** added 15 Nov 02:17 UTC (`raw/`, 548 days, enabled).
+- **Laptop sync:** Phase 4, read-only R2 token, rclone 1.75.2.
 
 Closed on 15 Nov 2026 (Damian's decisions, above):
 
