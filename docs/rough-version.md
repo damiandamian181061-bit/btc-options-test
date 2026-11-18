@@ -128,7 +128,7 @@ and confirmed by Damian on 15 Nov 2026), effective from 10 Nov 2026 12:00 UTC, S
 | 22 | Settlement pays intrinsic value at the delivery price directly, not through the expiry's future. | The same payoff, but it is not the two-step booking. | Phase 4 settlement |
 | 23 | Sizing counts the entry fees in the maximum loss, but not exit or delivery fees. Equity for sizing is at mark. | The real maximum loss is a few USDC higher. | Phase 4 risk gateway |
 | 24 | Limits checked: open count, per expiry, total maximum loss. There are no portfolio delta or vega limits, no daily loss limit, no kill switch and no `risk_events` log (a refusal shows only in the day's decision reason). | Most of the risk table is not enforced. | Phase 4 risk gateway; Phase 8 kill switch |
-| 25 | No margin model: 100,000 USDC paper cash with no margin requirement. | Could hold positions a real account couldn't. | Phase 4/8 |
+| 25 | No margin model: 100,000 USDC paper cash with no margin requirement. | Could hold positions a real account couldn't. | Phase 4 risk gateway (decided 18 Nov 2026); Phase 8 checks it against testnet |
 | 26 | The `rough_*` tables are not in the nightly R2 export. | The paper ledger is lost if the database is lost. | Phase 8 (paper ledger backed up), if kept |
 | 27 | No healthchecks.io ping for the paper service. The page shows "last seen" and an error after 5 minutes without a run. | A stopped paper service emails nobody. | Phase 8 |
 | 28 | The maths has hand-worked golden tests only, not btc-vol-models numbers or Deribit's values. | Matches the formulas as written, not proven against references. | Phase 3 golden tests |

@@ -24,9 +24,26 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 Phase 3 · Pricing and volatility surface: **gate passed on 18 Nov 2026** (below).
 
-Phase 4 · Backtest engine: **next, not started**. It needs the first full recorded week (14 to
-20 Nov), complete from **Sat 21 Nov 2026**, and a read-only R2 token that Damian creates and
-pastes into the laptop's `.env` by hand (add-on b).
+Phase 4 · Backtest engine: **next, not started**. Its gate needs the first full recorded week
+(14 to 20 Nov), complete from **Sat 21 Nov 2026** (synced after that night's 00:30 UTC
+export); the build itself may start earlier.
+
+Settled ahead of Phase 4 (18 Nov 2026):
+
+- **Read-only R2 token: created by Damian** (about 03:50 UTC) in the Cloudflare dashboard. The
+  laptop has no `.env` yet (checked without reading: no file; `.env` is git-ignored and not
+  tracked). In Phase 4 Damian creates it and pastes `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
+  `R2_ENDPOINT` and `R2_BUCKET` (the field names in `src/optlab/config.py`) himself. rclone is
+  not installed in WSL yet; Phase 4 installs the pinned 1.75.2.
+- **Margin model (add-on f): Phase 4.** Damian left the choice to Claude Code ("the most
+  optimal choice"). Reason: Phase 8 runs the same risk gateway as the backtests, so a margin
+  check built once in Phase 4's gateway makes Phase 5's results respect margin from the start
+  (no re-run later), and Phase 8 then compares our margin estimate with testnet's actual
+  margin. Scope: a simple, conservative initial and maintenance margin check from Deribit's
+  published rules for the account type we assume, with the source and any simplification
+  written down; an order that would breach it is rejected and logged in `risk_events`. With
+  100,000 USDC and the brief's limits (total maximum loss at most 10% of equity) it is
+  expected to bind rarely; it is a guard, not a new trading rule.
 
 Phase 2B · Rough end-to-end version: **running** since 15 November 2026 15:30 UTC. Gate
 checked on 17 Nov (below): two of its three parts pass; "shows its trades" waits for the first
@@ -853,9 +870,10 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Phase 4 (backtest engine) from Sat 21 Nov 2026, when the week 14-20 Nov is complete. First:
-   the laptop sync with a read-only R2 token (Damian creates it and pastes it into the laptop's
-   `.env` by hand).
+1. Phase 4 (backtest engine): the build may start any time; the gate runs on the week 14-20
+   Nov from Sat 21 Nov 2026. First: the laptop sync (rclone 1.75.2) with the read-only R2
+   token Damian created on 18 Nov (he pastes it into the laptop's `.env` by hand). The margin
+   model is built in Phase 4 (decided 18 Nov).
 2. Phase 2B: every status check looks for the first rough trade (option A).
 4. Dates: 20 Nov 08:00 UTC the 20 Nov expiry settles (no BTC_USDC entries possible 20 Nov 08:00
    to 25 Nov 08:00 unless Deribit lists 4 Dec); 21 Nov the first full recorded week (14 to 20
