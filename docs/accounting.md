@@ -1,8 +1,8 @@
 # Accounting rules
 
 How the Phase 4 ledger books USDC cash, option premiums, fees, settlement and funding.
-**Waiting for Damian's sign-off** (Phase 3 add-on k); the choices are questions 5 and 6 at the
-end (1 to 4 are in `docs/formulas.md`). Fee rates are Damian's confirmed schedule of 15 Nov 2026
+**Signed off by Damian on 18 Nov 2026** (Phase 3 add-on k); his choices 5 and 6 are at the end
+(1 to 4 are in `docs/formulas.md`). Fee rates are Damian's confirmed schedule of 15 Nov 2026
 (`configs/fees/deribit.yaml`, Standard tier).
 
 ## Principles
@@ -130,7 +130,11 @@ Dr `cash`, Cr `funding`.
 **0.00615 BTC** in `cash:BTC` (Dr `cash:BTC`, Cr `position`), never converted. At an index of
 65,000 it is worth 399.75 USDC in equity, and that value moves with the index.
 
-## Questions for Damian (your choices)
+## Damian's choices (decided 18 Nov 2026: each recommendation accepted)
+
+Decided: (5) open positions valued at Deribit's mark price, with the liquidation value shown
+alongside on reports; (6) BTC amounts reported in USDC at the same minute's `btc_usdc` index,
+BTC balances kept in BTC. The options as they were put:
 
 5. **Valuing open positions for equity.** Recommended: **Deribit's mark price**, the exchange's
    own fair value (what its margin and P&L use), with the **liquidation value** (bids for longs,

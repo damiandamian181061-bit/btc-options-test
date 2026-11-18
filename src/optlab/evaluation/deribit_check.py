@@ -15,9 +15,13 @@ Two comparisons per option quote (state open, with a mark IV, before expiry):
 ``leg_choice`` then asks the finance question: picking the short leg closest to 0.20 |delta|
 (within 0.15 to 0.30, expiries 7 to 30 days), how often would our delta choose a different
 strike than Deribit's?
+
+``gate_checks`` holds each measured difference against the tolerances Damian agreed on 18 Nov
+2026 (``TOLERANCES``). They are never widened to make a check pass.
 """
 
-from collections.abc import Iterable
+import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -33,6 +37,37 @@ from optlab.volatility.surface import Surface, SurfaceConfig, build_surface
 YEAR_MS = 365 * MS_PER_DAY
 DELTA_BUCKETS = (0.0, 0.05, 0.15, 0.30, 0.50, 0.85, 1.0001)
 DAY_BUCKETS = (0.0, 1.0, 3.0, 7.0, 14.0, 30.0, 60.0, 120.0, 400.0)
+
+# The Phase 3 gate's tolerances, agreed by Damian on 18 Nov 2026 (add-on g). Units: delta in
+# delta units, gamma per USD, vega in USD per vol point, theta in USD a day, IV in vol points,
+# the forward in basis points, shares as fractions, strikes as a count of listed strikes.
+TOLERANCES: dict[str, float] = {
+    "engine_delta_max": 0.0001,  # expiries 1 day or more
+    "engine_gamma_max": 0.00001,  # expiries 1 day or more
+    "engine_vega_max": 0.05,  # expiries 1 day or more
+    "engine_theta_max": 0.05,  # expiries 7 days or more
+    "engine_iv_p99": 0.5,  # IV from the mark price; 7-30 days, |delta| 0.05-0.50
+    "surface_iv_median": 0.25,  # 7-30 days, |delta| 0.05-0.50
+    "surface_iv_p99": 1.0,  # 7-30 days, |delta| 0.05-0.50
+    "surface_delta_p99": 0.005,  # 7-30 days, |delta| 0.05-0.50
+    "leg_differs_share": 0.02,  # the 0.20-delta short leg, 7-30 days
+    "leg_differs_strikes": 1.0,  # ... and only ever the neighbouring strike
+    "forward_parity_p95_bp": 10.0,  # dated future against put-call parity
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Check:
+    """One gate measurement against its tolerance. No data, or NaN, never passes."""
+
+    name: str
+    measured: float
+    limit: float
+    n: int
+
+    @property
+    def passed(self) -> bool:
+        return self.n > 0 and not math.isnan(self.measured) and self.measured <= self.limit
 
 
 def engine_rows(chain: pd.DataFrame, book: Book, ts_ms: int) -> pd.DataFrame:
@@ -165,6 +200,99 @@ def leg_choice(
 
         out.append(LegPick(int(ts), int(expiry), bool(call), pick("delta"), pick("our_delta")))
     return out
+
+
+def leg_steps(rows: pd.DataFrame, picks: Iterable[LegPick]) -> list[int]:
+    """For each pick where both sides chose and chose differently: how many listed strikes
+    (in ``rows`` for that minute, expiry and side) lie between Deribit's pick and ours."""
+    strikes = {
+        key: sorted(g["strike"].unique()) for key, g in rows.groupby(["ts_ms", "expiry_ms", "call"])
+    }
+    out: list[int] = []
+    for p in picks:
+        if p.by_deribit is None or p.by_ours is None or p.by_deribit == p.by_ours:
+            continue
+        listed = strikes.get((p.ts_ms, p.expiry_ms, p.call), [])
+        if p.by_deribit in listed and p.by_ours in listed:
+            out.append(abs(listed.index(p.by_deribit) - listed.index(p.by_ours)))
+        else:  # cannot place the picks: count it as far apart, so the check fails
+            out.append(len(listed) + 1)
+    return out
+
+
+def _window(rows: pd.DataFrame) -> pd.DataFrame:
+    """Where the strategy trades: 7 to 30 days to expiry, |delta| 0.05 to 0.50."""
+    return rows.loc[
+        (rows["days"] >= 7)
+        & (rows["days"] <= 30)
+        & (rows["abs_delta"] >= 0.05)
+        & (rows["abs_delta"] <= 0.50)
+    ]
+
+
+def _err(rows: pd.DataFrame, ours: str, theirs: str, scale: float = 1.0) -> pd.Series:
+    return ((rows[ours] - rows[theirs]).abs() * scale).dropna()
+
+
+def gate_checks(
+    engine: pd.DataFrame, surface: pd.DataFrame, surfaces: Sequence[Surface]
+) -> list[Check]:
+    """Every gate measurement for one book against ``TOLERANCES``, in that order.
+
+    ``engine`` and ``surface`` are that book's ``engine_rows`` and ``surface_rows`` over all the
+    sampled minutes, and ``surfaces`` its fitted surfaces.
+    """
+    t = TOLERANCES
+    checks: list[Check] = []
+
+    def add(name: str, values: pd.Series | np.ndarray, how: str) -> None:
+        v = np.asarray(values, dtype=float)
+        if v.size == 0:
+            measured = float("nan")
+        elif how == "max":
+            measured = float(v.max())
+        elif how == "median":
+            measured = float(np.median(v))
+        else:  # a percentile, e.g. "p99"
+            measured = float(np.percentile(v, float(how[1:])))
+        checks.append(Check(name, measured, t[name], int(v.size)))
+
+    day_plus = engine.loc[engine["days"] >= 1]
+    add("engine_delta_max", _err(day_plus, "our_delta", "delta"), "max")
+    add("engine_gamma_max", _err(day_plus, "our_gamma", "gamma"), "max")
+    add("engine_vega_max", _err(day_plus, "our_vega", "vega"), "max")
+    add("engine_theta_max", _err(engine.loc[engine["days"] >= 7], "our_theta", "theta"), "max")
+    add("engine_iv_p99", _err(_window(engine), "our_iv", "mark_iv", 100), "p99")
+
+    srf = _window(surface) if len(surface) else surface
+    iv = _err(srf, "our_iv", "mark_iv", 100) if len(srf) else pd.Series(dtype=float)
+    add("surface_iv_median", iv, "median")
+    add("surface_iv_p99", iv, "p99")
+    delta = _err(srf, "our_delta", "delta") if len(srf) else pd.Series(dtype=float)
+    add("surface_delta_p99", delta, "p99")
+
+    picks = leg_choice(surface) if len(surface) else []
+    both = [p for p in picks if p.by_deribit is not None and p.by_ours is not None]
+    steps = leg_steps(surface, both) if both else []
+    share = len(steps) / len(both) if both else float("nan")
+    checks.append(Check("leg_differs_share", share, t["leg_differs_share"], len(both)))
+    checks.append(
+        Check(
+            "leg_differs_strikes",
+            float(max(steps, default=0)) if both else float("nan"),
+            t["leg_differs_strikes"],
+            len(both),
+        )
+    )
+
+    bp = [
+        abs(f.forward.difference_bp)
+        for s in surfaces
+        for f in s.fits
+        if f.forward.difference_bp is not None
+    ]
+    add("forward_parity_p95_bp", np.asarray(bp, dtype=float), "p95")
+    return checks
 
 
 def minute_frames(

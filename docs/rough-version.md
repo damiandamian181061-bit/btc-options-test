@@ -137,9 +137,10 @@ Not a shortcut: "no new entries within 48 hours of expiry" is covered by the 7-d
 
 ## Phase 3 status (18 Nov 2026)
 
-The tested replacements for shortcuts 1 to 4, 6 and 28 are **built**. The running rough service
-**still uses its shortcuts**: switching it onto the new code waits for Damian's yes (Phase 3,
-add-on c), because it would change the rule while its own gate is still open.
+The tested replacements for shortcuts 1 to 4, 6 and 28 are **built**, and the Phase 3 gate
+passed on 18 Nov 2026. The running rough service **keeps its shortcuts**: Damian decided on 18
+Nov 2026 (add-on c) not to switch it onto the new code, because that would change its rule while
+its own gate is still open. Phase 4 and 5 replace it.
 
 | # | Replacement, built in Phase 3 | Rough service |
 | --- | --- | --- |
@@ -147,5 +148,5 @@ add-on c), because it would change the rule while its own gate is still open.
 | 2 | The surface's 30-day tenor, interpolated in total variance from every usable expiry, flat outside (`optlab.volatility.surface`); both books are fitted | not switched |
 | 3 | Forwards from the dated future's mark, with put-call parity as fallback and cross-check (`optlab.volatility.forward`) | not switched |
 | 4 | Realised vol from our own 08:00 UTC index snapshots, delivery prices filling in until 13 Dec (`optlab.volatility.realised`, `features.rv_30d`) | not switched |
-| 6 | Our Black-76 Greeks match Deribit's to its 5-decimal rounding on 16 Nov (`research/deribit_comparison.md`) | not switched (it uses Deribit's delta, which now has a check) |
+| 6 | Our Black-76 Greeks match Deribit's to its 5-decimal rounding (16 Nov), and on 17 Nov every check is inside the agreed tolerances (`research/deribit_comparison.md`) | not switched (it uses Deribit's delta, which now has a check) |
 | 28 | Golden tests against btc-vol-models (`tests/pricing/golden/`), plus finite differences and Deribit's values | done (tests only) |

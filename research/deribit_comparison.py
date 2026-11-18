@@ -91,6 +91,51 @@ def main() -> None:
     def section(title: str, text: str) -> None:
         out.extend([f"## {title}", "", text, ""])
 
+    labels = {
+        "engine_delta_max": "Engine delta, max (expiries 1 day or more)",
+        "engine_gamma_max": "Engine gamma per USD, max (1 day or more)",
+        "engine_vega_max": "Engine vega, USD per vol point, max (1 day or more)",
+        "engine_theta_max": "Engine theta, USD a day, max (7 days or more)",
+        "engine_iv_p99": "Engine IV from the mark price, vol points, 99th pct (window)",
+        "surface_iv_median": "Surface IV against the mark, vol points, median (window)",
+        "surface_iv_p99": "Surface IV against the mark, vol points, 99th pct (window)",
+        "surface_delta_p99": "Surface delta against Deribit's, 99th pct (window)",
+        "leg_differs_share": "0.20-delta short leg: share picking another strike",
+        "leg_differs_strikes": "0.20-delta short leg: most strikes apart",
+        "forward_parity_p95_bp": "Forward, future against parity, bp, 95th pct",
+    }
+    gate_rows = []
+    for book in (Book.LINEAR, Book.INVERSE):
+        checks = dc.gate_checks(
+            eng[eng.book == book.value],
+            srf[srf.book == book.value],
+            [x for x in surfaces if x.book == book],
+        )
+        for c in checks:
+            gate_rows.append(
+                {
+                    "book": "BTC_USDC" if book == Book.LINEAR else "BTC",
+                    "check": labels[c.name],
+                    "n": c.n,
+                    "measured": f"{c.measured:.6g}",
+                    "tolerance": f"{c.limit:g}",
+                    "result": "pass" if c.passed else "**FAIL**",
+                }
+            )
+    gate = pd.DataFrame(gate_rows).set_index("book")
+    failed = int((gate["result"] != "pass").sum())
+    section(
+        "Gate: against the tolerances agreed on 18 Nov 2026",
+        "The window is where the strategy trades: expiries 7 to 30 days, |delta| 0.05 to 0.50 "
+        "by Deribit's delta. "
+        + (
+            f"**All {len(gate)} checks pass.**"
+            if failed == 0
+            else f"**{failed} of {len(gate)} checks fail.**"
+        ),
+    )
+    out.extend([md(gate), ""])
+
     for book in (Book.LINEAR, Book.INVERSE):
         e = eng[eng.book == book.value]
         s = srf[srf.book == book.value]
@@ -232,15 +277,7 @@ def main() -> None:
         picks = dc.leg_choice(s)
         both = [p for p in picks if p.by_deribit is not None and p.by_ours is not None]
         differ = [p for p in both if p.by_deribit != p.by_ours]
-        steps = []
-        for p in differ:
-            strikes = sorted(
-                s[
-                    (s.ts_ms == p.ts_ms) & (s.expiry_ms == p.expiry_ms) & (s.call == p.call)
-                ].strike.unique()
-            )
-            if p.by_deribit in strikes and p.by_ours in strikes:
-                steps.append(abs(strikes.index(p.by_deribit) - strikes.index(p.by_ours)))
+        steps = dc.leg_steps(s, differ)
         if not steps:
             how_far = ""
         elif max(steps) == 1:

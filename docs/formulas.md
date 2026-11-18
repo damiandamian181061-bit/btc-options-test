@@ -1,8 +1,8 @@
 # Formula sheet
 
 The definitions every report and backtest uses (Phase 5 builds them; Phase 3 builds realised
-vol). **Waiting for Damian's sign-off** (Phase 3 add-on k); the choices marked **(choice n)**
-are listed as questions at the end, each with a recommendation.
+vol). **Signed off by Damian on 18 Nov 2026** (Phase 3 add-on k): the choices marked
+**(choice n)** are listed at the end with his answers (he took each recommendation).
 
 Everything is annualised over **365 days**: BTC trades every day of the year.
 
@@ -95,7 +95,10 @@ Made-up equity at 00:00 UTC over 10 days (USDC): 100,000; 100,400; 100,150; 99,6
    mean of the 5 worst days.
 7. **Worst day**: 1.592% (day 7).
 
-## Questions for Damian (your choices)
+## Damian's choices (decided 18 Nov 2026: each recommendation accepted)
+
+Decided: (1) daily cut 00:00 UTC; (2) risk-free rate 0; (3) VaR and ES by historical simulation
+on daily returns; (4) realised vol on 08:00 UTC index closes. The options as they were put:
 
 1. **Daily cut for equity returns.** Recommended: **00:00 UTC**, the UTC day the daily loss limit
    already uses. Alternative: 08:00 UTC, the expiry time (P&L days then line up with
