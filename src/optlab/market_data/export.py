@@ -38,7 +38,7 @@ import pyarrow.parquet as pq
 from psycopg import sql
 
 from optlab.domain.clock import MS_PER_DAY, datetime_to_ms, ms_to_datetime
-from optlab.market_data.store import SCHEMA_REVISION
+from optlab.market_data import schema as db_schema
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,8 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("recorder_status", _TS_DAY, 't.ts, t.run_id COLLATE "C"'),
 )
 TABLE_SPECS = {t.name: t for t in TABLES}
+# What the export reads, plus the table the backup records each export in.
+EXPORT_TABLES: tuple[str, ...] = (*(t.name for t in TABLES), "dataset_exports")
 
 _ARROW_TYPES: dict[str, pa.DataType] = {
     "timestamp with time zone": pa.timestamp("us", tz="UTC"),
@@ -292,9 +294,10 @@ def export_day(database_url: str, day: date, root: Path, *, now_ms: int) -> dict
         conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
         conn.read_only = True
         session_settings(conn)
-        revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        if revision is None or revision[0] != SCHEMA_REVISION:
-            raise ExportError(f"database schema is {revision}, export needs {SCHEMA_REVISION}")
+        try:
+            revision = db_schema.check(conn, EXPORT_TABLES, "the nightly export")
+        except db_schema.SchemaMismatchError as e:
+            raise ExportError(str(e)) from None
         for spec in TABLES:
             columns = table_columns(conn, spec.name)
             schema = arrow_schema(columns)
@@ -335,7 +338,7 @@ def export_day(database_url: str, day: date, root: Path, *, now_ms: int) -> dict
     manifest: dict[str, Any] = {
         "format": EXPORT_FORMAT,
         "day": day.isoformat(),
-        "schema_revision": SCHEMA_REVISION,
+        "schema_revision": revision,  # the database's, at export time
         "tables": tables,
     }
     manifest["dataset_version"] = dataset_version(manifest)

@@ -49,8 +49,8 @@ from optlab.ledger.rough import (
     open_value,
     settlement_fills,
 )
+from optlab.market_data import schema
 from optlab.market_data.quality import QualityConfig, load_quality_config
-from optlab.market_data.store import SCHEMA_REVISION
 from optlab.market_data.view import DatabaseSource, MarketDataSource, MarketDataView, snapshot_times
 from optlab.risk.rough import OpenRisk, RoughLimits, approve, load_limits
 from optlab.simulator import rough_store as store
@@ -401,13 +401,8 @@ def _database_url(settings: Settings) -> str:
 
 
 def _check_schema(url: str) -> None:
-    with psycopg.connect(url, autocommit=True) as conn:
-        row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-    if row is None or row[0] != SCHEMA_REVISION:
-        raise SystemExit(
-            f"database schema is at {row[0] if row else None!r}, the paper service needs "
-            f"{SCHEMA_REVISION!r}: back up, then run the migrations (infra/server-setup.md)"
-        )
+    """Runs on any revision that leaves the tables it reads and writes as this code expects."""
+    schema.check_url(url, (*schema.VIEW_TABLES, *schema.ROUGH_TABLES), "the paper service")
 
 
 def build(url: str, paper: PaperSettings, *, started_ms: int) -> RoughPaper:

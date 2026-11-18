@@ -379,7 +379,11 @@ def test_the_status_page_shows_the_paper_trades(
     app = AppTest.from_file(str(REPO_ROOT / "apps" / "dashboard" / "status.py"), default_timeout=30)
     app.run()
     assert not app.exception, app.exception
-    assert [t.label for t in app.tabs] == ["Recorder", "Paper trading (ROUGH)"]
+    assert [t.label for t in app.tabs] == [
+        "Recorder",
+        "Paper trading (ROUGH)",
+        "Volatility surface",
+    ]
     assert any("ROUGH end-to-end version" in w.value for w in app.warning)
     headers = [h.value for h in app.subheader]
     for header in (

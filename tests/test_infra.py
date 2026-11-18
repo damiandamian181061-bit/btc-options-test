@@ -14,7 +14,7 @@ def compose(name: str = "compose.yaml") -> dict[str, Any]:
     return data
 
 
-APPS = ("recorder", "health", "jobs", "dashboard", "paper")
+APPS = ("recorder", "health", "jobs", "dashboard", "paper", "surface")
 R2_VARS = {"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT", "R2_BUCKET"}
 
 
@@ -50,6 +50,7 @@ def test_apps_get_only_the_settings_they_need() -> None:
         "jobs": R2_VARS | {"HC_PING_URL_BACKUP"},
         "dashboard": set(),
         "paper": set(),  # the rough paper service needs no keys: it sends nothing anywhere
+        "surface": set(),  # nor does the surface worker
     }
     for service in services.values():
         assert "env_file" not in service  # never hand a container the whole .env
@@ -147,6 +148,20 @@ def test_the_rough_paper_service_runs_alone_with_a_memory_limit_and_no_port() ->
     assert paper["restart"] == "unless-stopped"
     assert "ports" not in paper
     assert set(paper["environment"]) == {
+        "DATABASE_URL",
+        "LIVE_TRADING",
+        "TRADING_MODE",
+        "DERIBIT_ENV",
+    }
+
+
+def test_the_surface_worker_has_a_memory_limit_no_port_and_no_keys() -> None:
+    surface = compose()["services"]["surface"]
+    assert surface["command"] == ["optlab-surface"]
+    assert surface["mem_limit"] == "384m"
+    assert surface["restart"] == "unless-stopped"
+    assert "ports" not in surface
+    assert set(surface["environment"]) == {
         "DATABASE_URL",
         "LIVE_TRADING",
         "TRADING_MODE",

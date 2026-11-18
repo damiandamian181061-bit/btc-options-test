@@ -88,6 +88,10 @@ def test_the_status_page_renders(database_url: str, monkeypatch: pytest.MonkeyPa
     assert headers[:3] == ["Last tick per stream", "Recorder memory, last 24 hours", "Recent gaps"]
     assert any("above the 1 GB daily warning level" in w.value for w in app.warning)
     # The rough paper tab, with no paper activity yet.
-    assert [t.label for t in app.tabs] == ["Recorder", "Paper trading (ROUGH)"]
+    assert [t.label for t in app.tabs] == [
+        "Recorder",
+        "Paper trading (ROUGH)",
+        "Volatility surface",
+    ]
     assert any("not a result" in w.value for w in app.warning)
     assert any("No daily decision yet" in i.value for i in app.info)

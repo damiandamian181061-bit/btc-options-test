@@ -32,11 +32,23 @@ could pick it up.
 - **Smaller exports** (Phase 2). The nightly export sorts by instrument and time with zstd
   level 9. If R2 growth matters later, delta-encoding timestamps or dropping columns that never
   change within a day would shrink it further.
-- **Recorder accepts compatible schema revisions** (Phase 2B, Damian). The recorder refuses to
-  start on any revision but its own, so a migration that only adds paper or backtest tables
-  (like `0003`) still forces a recorder restart on the new image. Let it accept any later
-  revision that leaves its own tables unchanged, for example a list of recorder-compatible
-  revisions kept next to the migrations and checked by a test. Not for Phase 2B.
+- ~~**Recorder accepts compatible schema revisions**~~ (Phase 2B, Damian). Done in Phase 3
+  (18 Nov 2026), as a check of each service's own tables rather than a list of revisions
+  (`optlab.market_data.schema`, infra/server-setup.md section 17).
+- **Arbitrage-free fit for long expiries** (Phase 3). The spline smile shows small butterfly
+  violations in some expiries 30 days or more out (mostly 4 to 10 months, inverse book; none 7 to
+  30 days on 16 Nov). They are flagged and stored. An SVI-type fit with no-arbitrage
+  constraints would remove them if a later phase prices long expiries. Phase 10 at the latest.
+- **Deribit's near-expiry theta** (Phase 3). Within about 4 days of expiry Deribit's theta stops
+  being the instantaneous Black-76 theta (close to the one-day change in value in the last day).
+  Ours stays Black-76. Phase 5's Greek attribution near expiry should say which it uses.
+- **Open interest is slow** (Phase 3, add-on e). On 16 Nov the ticker's open interest changed in
+  under 1% of the minutes after a trade, a median 56 minutes later (90th percentile 167). No
+  minute feature uses it. A daily open-interest feature would take it at a fixed time and treat
+  it as hours old.
+- **Rebuild the surface history** (Phase 3). The worker starts from the live minute; the surface
+  for 13 to 18 Nov (and any minute missed during a restart) can be rebuilt from the exported
+  days with the same code (`compute_minute` over `ParquetSource`). Phase 4, with the laptop sync.
 - **Combo fills and the combo fee discount** (Phase 2B). Deribit charges nothing on the cheaper
   direction of an option combo with buys and sells; the rough version fills leg by leg and pays
   both. Phase 4 (fees) and Phase 8 (combo orders on testnet).

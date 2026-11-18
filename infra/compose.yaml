@@ -131,6 +131,20 @@ services:
     mem_limit: 512m
     stop_grace_period: 30s
 
+  # Phase 3 surface worker: forwards, smiles, the volatility surface and the features of both
+  # books, every minute, into vol_expiries, vol_surface and features. Reads the recorded data
+  # and writes only those tables; needs no keys, sends nothing anywhere, publishes no port.
+  surface:
+    <<: *app
+    command: ["optlab-surface"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      LIVE_TRADING: ${LIVE_TRADING:-false}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      DERIBIT_ENV: ${DERIBIT_ENV:-public}
+    mem_limit: 384m
+    stop_grace_period: 30s
+
   # The Phase 2 status page. Read-only database connection; localhost-only port.
   dashboard:
     <<: *app

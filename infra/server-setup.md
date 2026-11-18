@@ -511,10 +511,11 @@ paper fills only (docs/rough-version.md). It gets only `DATABASE_URL` and the th
 switches, no keys, and no port. It has a 512 MB memory limit and `restart: unless-stopped`. Its
 decisions, spreads, trades and equity are on the status page's "Paper trading (ROUGH)" tab.
 
-**Every migration also needs the recorder restarted on the new image.** The recorder refuses
-to start on any schema revision but its own. If it kept running an old image, its next restart
-(a crash or a 04:00 reboot) would fail. Restart only the services whose code changed, plus the
-recorder after a migration. Do it just after a minute boundary (the recorder writes each minute's
+**Up to migration `0003`, every migration also needed the recorder restarted on the new image**:
+the recorder (and the export and paper service) refused to start on any schema revision but
+their own, so an old image's next restart (a crash or a 04:00 reboot) would fail. From Phase 3
+each service checks only its own tables instead (section 17). Restart only the services whose
+code changed. Do it just after a minute boundary (the recorder writes each minute's
 snapshot a second or two after the minute), and always with `--no-deps`, so `db` is never
 recreated. Avoid 07:55 to 08:35 UTC (expiry, discovery and delivery prices), :05 past each hour
 (data checks) and 00:30 (backup). If a deploy could run into 00:30, stop `jobs` first and start
@@ -538,6 +539,54 @@ infra/dc logs --tail 20 paper                           # "ROUGH paper service .
 
 `infra/dc run --rm --no-deps paper optlab-paper-rough --once </dev/null` processes the latest
 snapshot once and prints what it did. With a decision already made that day, it changes nothing.
+
+## 17. Surface worker and schema compatibility (Phase 3)
+
+`surface` (`optlab-surface`) builds, every minute and for both books, each expiry's forward and
+smile, the surface buckets and the features, into `vol_expiries`, `vol_surface` and `features`
+(migration `0004`). It reads the recorded data and writes only those tables; it gets only
+`DATABASE_URL` and the three safety switches, no keys, no port, a 384 MB memory limit and
+`restart: unless-stopped`. The status page's "Volatility surface" tab shows its output and
+fits the latest smiles itself (read-only).
+
+**Schema compatibility** (Damian, 18 Nov 2026). The recorder, the nightly export, the paper
+service and the surface worker each check, at start (the export before every run), that the
+tables they use are exactly as their code expects (columns, types, NULL rules, constraints:
+`optlab.market_data.schema`), not the revision number. So a migration that only adds tables
+needs no restart of the others: an old image keeps running, and comes back after a reboot. A
+migration that changes one of their tables still makes them refuse to start: restart them on
+the new image. The first deploy of this code (with `0004`) restarts them once onto it.
+
+To check the live tables against the code, read-only, compare what this prints with
+`EXPECTED` in `src/optlab/market_data/schema.py`:
+
+```bash
+infra/dc run --rm --no-deps surface python -c "from optlab.market_data import schema; \
+  import os, psycopg; c = psycopg.connect(os.environ['DATABASE_URL']); \
+  print(schema.mismatches(c, schema.EXPECTED) or 'all tables as expected')" </dev/null
+```
+
+**Deploy of migration `0004`** (from `/srv/btc-options-lab`, outside 07:55-08:35, :05, 00:30 and
+09:00 UTC; check free memory first, `free -m`):
+
+```bash
+git pull --ff-only
+infra/dc build                                          # the image; running services keep the old one
+mkdir -p backups
+DUMP="backups/pre-migration-$(date -u +%Y%m%dT%H%MZ).dump"
+infra/dc exec -T db pg_dump -U optlab -d optlab -Fc </dev/null > "$DUMP"
+infra/dc exec -T db pg_restore --list < "$DUMP" | grep -c 'TABLE DATA'   # the dump reads back
+infra/dc run --rm --no-deps recorder alembic -c infra/alembic.ini upgrade head </dev/null
+infra/dc run --rm --no-deps surface optlab-surface --once --dry-run </dev/null   # builds, stores nothing
+# at hh:mm:02, just after a minute boundary:
+infra/dc up -d --no-deps recorder jobs paper dashboard surface
+infra/dc ps                                             # health keeps its old container
+infra/dc logs --tail 20 surface                         # "surface worker starting"
+```
+
+`recorder`, `jobs` and `paper` restart once to get the table check (their old images check the
+revision and would refuse `0004` after their next restart); `dashboard` for the new tab;
+`surface` is new; `db` and `health` are untouched.
 
 ## If you are locked out
 

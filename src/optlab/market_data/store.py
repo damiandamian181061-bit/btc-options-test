@@ -6,7 +6,8 @@ and makes every write idempotent: a snapshot minute written twice (for example b
 runs overlapping during a deploy) or a trade seen twice is stored once.
 
 The schema itself is created by the Alembic migrations in ``infra/migrations``; the recorder
-refuses to start unless the database is at ``SCHEMA_REVISION``.
+refuses to start unless its own tables are exactly as this code expects
+(``optlab.market_data.schema``), whatever the revision.
 """
 
 import logging
@@ -29,9 +30,10 @@ from optlab.market_data.snapshot import Snapshot
 
 logger = logging.getLogger(__name__)
 
-# The recorder refuses to start on any other revision, so after every migration the recorder
-# must be restarted on the new image too (infra/server-setup.md).
-SCHEMA_REVISION = "0003"
+# The newest migration this code ships. Services don't require it: each checks only that the
+# tables it uses are as expected (optlab.market_data.schema), so a migration that only adds
+# tables needs no restart of the recorder, the backup job or the paper service.
+SCHEMA_REVISION = "0004"
 
 _INSTRUMENT_COLUMNS = (
     "instrument_name",

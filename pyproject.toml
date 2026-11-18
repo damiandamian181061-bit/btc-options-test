@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
+    "scipy>=1.16",
     "sqlalchemy>=2.1.8",
     "websockets>=17.4",
 ]
@@ -24,6 +25,7 @@ optlab-recorder = "optlab.market_data.service:recorder_main"
 optlab-health = "optlab.market_data.service:health_main"
 optlab-data = "optlab.market_data.jobs:main"
 optlab-paper-rough = "optlab.simulator.rough_paper:main"
+optlab-surface = "optlab.volatility.worker:main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14"]
@@ -72,8 +74,8 @@ warn_unreachable = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# pyarrow and pandas ship without type stubs.
-module = ["pyarrow", "pyarrow.*", "pandas", "pandas.*"]
+# pyarrow, pandas and scipy ship without type stubs.
+module = ["pyarrow", "pyarrow.*", "pandas", "pandas.*", "scipy", "scipy.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

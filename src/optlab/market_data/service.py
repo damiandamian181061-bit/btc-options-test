@@ -20,11 +20,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from optlab.config import Settings
 from optlab.domain.clock import MS_PER_SECOND
+from optlab.market_data import schema
 from optlab.market_data.deribit import PUBLIC_WS_URL, DeribitClient
 from optlab.market_data.health import HealthchecksPinger, run_health
 from optlab.market_data.recorder import Recorder, RecorderConfig
 from optlab.market_data.sink import MarketDataSink
-from optlab.market_data.store import SCHEMA_REVISION, RecorderStore
+from optlab.market_data.store import RecorderStore
 
 logger = logging.getLogger("optlab")
 
@@ -81,13 +82,11 @@ def _database_url(settings: Settings) -> str:
 
 
 async def run_recorder(settings: Settings, service: ServiceSettings) -> None:
-    store = RecorderStore(_database_url(settings))
-    revision = await store.schema_revision()
-    if revision != SCHEMA_REVISION:
-        raise SystemExit(
-            f"database schema is at {revision!r}, the recorder needs {SCHEMA_REVISION!r}: "
-            "back up, then run the migrations (infra/server-setup.md)"
-        )
+    url = _database_url(settings)
+    # Starts on any revision that leaves the recorder's own tables as this code expects.
+    revision = schema.check_url(url, schema.RECORDER_TABLES, "the recorder")
+    logger.info("database at revision %s; the recorder's tables are as expected", revision)
+    store = RecorderStore(url)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
     config = RecorderConfig(
         data_dir=service.data_dir,

@@ -1,5 +1,6 @@
 """btc-options-lab status page: is the recorder healthy and is the data complete (Phase 2)?
-And the ROUGH paper service's decisions, positions, trades and equity (Phase 2B).
+The ROUGH paper service's decisions, positions, trades and equity (Phase 2B). And the live
+volatility surface, smiles and features (Phase 3).
 
 Run on the server as the ``dashboard`` service (bound to the server's localhost only) and open
 it through an SSH tunnel; see infra/server-setup.md. Locally: ``uv run streamlit run
@@ -12,17 +13,25 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+import altair as alt
 import pandas as pd
 import psycopg
 import streamlit as st
 
 from optlab.config import Settings
-from optlab.domain.clock import MS_PER_DAY, ms_to_datetime
+from optlab.domain.clock import MS_PER_DAY, MS_PER_MINUTE, ms_to_datetime
+from optlab.domain.market import Book
 from optlab.market_data import status
 from optlab.market_data.quality import format_gap_report, gap_report
 from optlab.simulator.rough_store import PaperPage, page_data
+from optlab.volatility import page as vol_page
 
 SERIES_COLOR = "#2a78d6"  # categorical slot 1 of the dataviz palette (one series)
+# Categorical slots 1-3 in fixed order (validated light and dark; the aqua's light contrast is
+# relieved by distinct mark shapes and the data table under each chart).
+SMILE_COLORS = {"Our fit": "#2a78d6", "Quote mid (ours)": "#eb6834", "Deribit mark": "#1baf7a"}
+LINE_COLORS = {"ATM IV 30 d": "#2a78d6", "Realised vol 30 d": "#eb6834"}
+BOOKS = {"BTC_USDC (linear, main book)": Book.LINEAR, "BTC (inverse)": Book.INVERSE}
 
 st.set_page_config(
     page_title="Recorder status", page_icon=":material/monitor_heart:", layout="wide"
@@ -98,13 +107,165 @@ def page() -> None:
         f"Updated {datetime.now(UTC):%Y-%m-%d %H:%M:%S} UTC, every minute. "
         "Paper-trading research project, not investment advice."
     )
-    recorder_tab, paper_tab = st.tabs(["Recorder", "Paper trading (ROUGH)"])
+    recorder_tab, paper_tab, surface_tab = st.tabs(
+        ["Recorder", "Paper trading (ROUGH)", "Volatility surface"]
+    )
     with recorder_tab:
         recorder_section(
             now, ticks, recorder, uptime_24h, uptime_7d, memory, volume, db_bytes, disconnects, days
         )
     with paper_tab:
         paper_section(paper, now)
+    with surface_tab:
+        surface_section(now)
+
+
+@st.cache_data(ttl=55, show_spinner=False)
+def _live_smiles(book: str, minute_ms: int) -> tuple[int | None, list[vol_page.LiveSmile]]:
+    """Fitted once a minute per book (cached), with the surface worker's own code."""
+    return vol_page.live_smiles(_database_url(), Book(book), minute_ms + MS_PER_MINUTE - 1)
+
+
+def _smile_chart(smile: vol_page.LiveSmile) -> alt.LayerChart:
+    color = alt.Color(
+        "series:N",
+        scale=alt.Scale(domain=list(SMILE_COLORS), range=list(SMILE_COLORS.values())),
+        legend=alt.Legend(title=None, orient="top"),
+    )
+    x = alt.X("strike:Q", title="strike", scale=alt.Scale(zero=False))
+    y = alt.Y("iv:Q", title="implied vol (%)", scale=alt.Scale(zero=False))
+    line = (
+        alt.Chart(smile.curve)
+        .mark_line(strokeWidth=2)
+        .encode(x=x, y=y, color=color, tooltip=[
+            alt.Tooltip("strike:Q", format=",.0f"), alt.Tooltip("iv:Q", title="IV %", format=".2f"),
+        ])
+    )  # fmt: skip
+    dots = (
+        alt.Chart(smile.points)
+        .mark_point(size=70, filled=True, opacity=0.9)
+        .encode(
+            x=x,
+            y=y,
+            color=color,
+            shape=alt.Shape(
+                "series:N",
+                scale=alt.Scale(
+                    domain=["Quote mid (ours)", "Deribit mark"], range=["circle", "square"]
+                ),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("series:N"),
+                alt.Tooltip("strike:Q", format=",.0f"),
+                alt.Tooltip("iv:Q", title="IV %", format=".2f"),
+                alt.Tooltip("bid IV %:Q", format=".2f"),
+                alt.Tooltip("ask IV %:Q", format=".2f"),
+            ],
+        )
+    )
+    return alt.layer(line, dots).properties(height=340)
+
+
+def surface_section(now: int) -> None:
+    choice = st.radio("Book", list(BOOKS), horizontal=True, key="surface_book")
+    book = BOOKS[choice or next(iter(BOOKS))]
+    try:
+        with status.connect(_database_url()) as conn:
+            ts, grid_rows = vol_page.latest_surface(conn, book)
+            expiries = vol_page.latest_expiries(conn, book)
+            history = vol_page.feature_history(conn, book, now - MS_PER_DAY)
+    except psycopg.errors.UndefinedTable:
+        st.info("The surface tables do not exist yet (migration 0004).")
+        return
+    if ts is None:
+        st.info("The surface worker has not stored a minute yet (the `surface` service).")
+    else:
+        last = history.iloc[-1] if not history.empty else None
+
+        def pct(v: Any) -> str:
+            return "-" if v is None or pd.isna(v) else f"{v * 100:.2f}%"
+
+        cols = st.columns(6)
+        cols[0].metric("Surface minute", _age((now - ts) / 1000) + " ago", help=_when(ts))
+        cols[1].metric("ATM IV 30 d", pct(None if last is None else last["atm_iv_30d"]))
+        rv_help = (
+            None
+            if last is None
+            else f"{int(last['rv_30d_returns'])} daily returns available of 30; "
+            f"{int(last['rv_30d_delivery'])} closes were Deribit delivery prices"
+        )
+        cols[2].metric(
+            "Realised vol 30 d", pct(None if last is None else last["rv_30d"]), help=rv_help
+        )
+        cols[3].metric("IV - RV 30 d", pct(None if last is None else last["iv_rv_30d"]))
+        cols[4].metric("25d risk reversal 30 d", pct(None if last is None else last["rr25_30d"]))
+        cols[5].metric("Basis 30 d (a year)", pct(None if last is None else last["basis_30d"]))
+        if now - ts > 5 * 60_000:
+            st.error(
+                "The surface worker has not stored a minute for over 5 minutes.",
+                icon=":material/error:",
+            )
+
+        st.subheader("Surface, implied vol (%)")
+        st.dataframe(vol_page.surface_grid(grid_rows), width="stretch")
+        st.caption(
+            "Tenors interpolated in total variance between the two listed expiries around them, "
+            "at a fixed forward delta (ATM: at the forward). * = outside the listed expiries: IV "
+            "held flat from the nearest one."
+        )
+
+    st.subheader("Smiles, latest snapshot")
+    snap, smiles = _live_smiles(book.value, now - now % MS_PER_MINUTE)
+    if not smiles:
+        st.info("No smile could be fitted at the latest snapshot.")
+    else:
+        labels = {s.label: s for s in smiles}
+        # The first expiry at least 7 days out: where the strategy chooses its spreads.
+        default = next((i for i, s in enumerate(smiles) if s.days >= 7), 0)
+        pick = st.selectbox("Expiry", list(labels), index=default, key=f"smile_{book.value}")
+        smile = labels[pick or smiles[0].label]
+        st.caption(f"Snapshot {_when(snap)}. {smile.info}")
+        st.altair_chart(_smile_chart(smile), width="stretch")
+        with st.expander("Smile data (table)"):
+            st.dataframe(smile.points.round(2), hide_index=True, width="stretch")
+
+    st.subheader("Expiries, latest stored minute")
+    if expiries.empty:
+        st.info("No expiry rows yet.")
+    else:
+        st.dataframe(vol_page.expiry_table(expiries), hide_index=True, width="stretch")
+
+    st.subheader("ATM IV and realised vol, 30 days, last 24 hours (%)")
+    if history.empty:
+        st.info("No feature rows in the last 24 hours.")
+    else:
+        frame = pd.DataFrame(
+            {
+                "time (UTC)": [
+                    ms_to_datetime(int(t)).replace(tzinfo=None) for t in history["ts_ms"]
+                ],
+                "ATM IV 30 d": history["atm_iv_30d"].astype(float) * 100,
+                "Realised vol 30 d": history["rv_30d"].astype(float) * 100,
+            }
+        ).melt("time (UTC)", var_name="series", value_name="percent")
+        chart = (
+            alt.Chart(frame.dropna())
+            .mark_line(strokeWidth=2)
+            .encode(
+                x=alt.X("time (UTC):T"),
+                y=alt.Y("percent:Q", title="%", scale=alt.Scale(zero=False)),
+                color=alt.Color(
+                    "series:N",
+                    scale=alt.Scale(domain=list(LINE_COLORS), range=list(LINE_COLORS.values())),
+                    legend=alt.Legend(title=None, orient="top"),
+                ),
+                tooltip=[alt.Tooltip("time (UTC):T", format="%H:%M"), "series:N",
+                         alt.Tooltip("percent:Q", format=".2f")],
+            )
+            .properties(height=240)
+        )  # fmt: skip
+        st.altair_chart(chart, width="stretch")
 
 
 def recorder_section(

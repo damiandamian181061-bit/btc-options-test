@@ -11,7 +11,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | **Passed** 14 Nov 2026 (raw-stream cap chosen 14 Nov) |
 | 2 · Data and checks | Week 1 · days 4–7 | Restore from R2 works; the gap report covers every recorded day; the liquidity report names the book | **Passed** 15 Nov 2026 |
 | 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | **Gate open** (checked 17 Nov 2026): ran over 24 h and decides daily, shortcut list exists, but no rough trade yet; open until the first one shows (Damian's option A), Phase 3 may start meanwhile |
-| 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | Open |
+| 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | **Built** 18 Nov 2026 (laptop, CI); golden tests pass; waiting for Damian: tolerances, the server deploy, formula and accounting sign-off |
 | 4 · Backtest engine | Weeks 2–3 | Determinism, leakage and reconciliation tests pass on a real week; hand-checked smoke trade matches | Open |
 | 5 · Strategies and results | Week 3 | Full report of v1 rules vs every benchmark on the locked test, after costs | Open |
 | 6 · Streamlit dashboard | Weeks 3–4, in parallel | Public site loads every page on laptop and phone; nothing on it changes the system | Open |
@@ -21,6 +21,11 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | 10 · Challenger models | Week 5, after v1.0 | Each challenger promoted or rejected on evidence | Open |
 
 ## Current phase
+
+Phase 3 · Pricing and volatility surface: **built and tested on the laptop** (18 Nov 2026,
+below). Still to do: Damian agrees the tolerances, the server deploy (migration `0004` and the
+`surface` service, each step with his typed yes), the surface on the live status page, and his
+review of `docs/formulas.md` and `docs/accounting.md`.
 
 Phase 2B · Rough end-to-end version: **running** since 15 November 2026 15:30 UTC. Gate
 checked on 17 Nov (below): two of its three parts pass; "shows its trades" waits for the first
@@ -39,6 +44,87 @@ The restore test runs monthly from a systemd timer.
 
 Since 17 Nov 01:09 UTC the server also runs another of Damian's projects (Compose project
 `btc-dashboard`, not part of this repo); see "Open questions".
+
+## Phase 3 · Pricing and volatility surface (18 Nov 2026)
+
+Started 18 Nov 2026 at about 00:35 UTC from the Windows handover folder (repo through WSL).
+Read-only status at 00:37 (server clock): six services up 24 h, database at `0003`, 1.9 GiB
+memory available, no rough trade yet (next decision 18 Nov 09:00 UTC).
+
+**Damian's decisions (18 Nov 2026):**
+
+- **Add-on h, the gate's recorded day:** a read-only pull. A sample of 16 Nov 2026 (every 10th
+  minute, 236,268 option rows, plus that day's futures and indexes, trades, and every minute's
+  open interest 12:00-18:00) was copied by `SELECT ... COPY TO STDOUT` over SSH into a scratch
+  folder on the laptop at 00:43 UTC. Nothing on the server changed; no raw data is in the repo.
+- **Add-on j, compatible schemas: yes, now.** Implemented as a check of each service's own
+  tables (columns, types, NULLs, constraints) instead of the revision number
+  (`optlab.market_data.schema`). A read-only comparison of the 16 live tables on 18 Nov (before
+  any change): all 16 match the code's fingerprints, so the new recorder, export and paper
+  service start on the live database before and after `0004`.
+
+**Built** (tests first for every maths function):
+
+1. `docs/conventions.md`: units, time, prices, Greeks, inverse-to-USDC conversion (valuation
+   at the expiry's forward; BTC cash stays BTC).
+2. `optlab.pricing.black76`: undiscounted Black-76 (Deribit's interest rate is 0 on every
+   option), price, delta, gamma, vega per vol point, theta per day, inverse BTC premium.
+3. `optlab.pricing.iv`: Newton from the Manaster-Koehler start, kept inside a shrinking bracket,
+   Brent fallback; no-arbitrage bounds; flags (`iv_error` per price tick, `unreliable`).
+4. `optlab.volatility.forward`: the dated future's mark, put-call parity (median of the 3
+   nearest clean pairs) as fallback and cross-check.
+5. `optlab.volatility.smile`, `surface`: spline smile per expiry (out-of-the-money mids,
+   weighted by 1 / IV spread, GCV smoothing); buckets 10/25-delta puts and calls and ATM at 1,
+   3, 7, 14, 30, 60, 90 days, in total variance; butterfly (Gatheral g) and calendar checks.
+6. `optlab.volatility.features`, `realised`; worker `optlab-surface` (`worker`, `store`);
+   migration `0004` (`vol_expiries`, `vol_surface` hypertables compressed after 7 days;
+   `features`). Every minute is read through `MarketDataView(as_of=minute)`; a leakage test
+   changes every row after t in a second database and checks the minute at t is identical.
+7. `docs/formulas.md` and `docs/accounting.md`, each with a worked example; six questions for
+   Damian between them.
+8. The status page's "Volatility surface" tab: surface grid, live smiles (our fit, our quote
+   mids and Deribit's marks), expiries with forward and checks, ATM IV against realised vol.
+
+Also: the `surface` Compose service (384 MB, no port, no keys); scipy 1.18.1 added.
+
+**Evidence so far:**
+
+- **Golden tests pass**: 432 grid cases and the 21 Black-Scholes rows of `greeks_table.csv` from
+  btc-vol-models at `4bb1cb1` (`tests/pricing/golden/btc_vol_models.json`, generated by
+  `research/btc_vol_models_golden.py`); five-point finite differences to 1e-7; put-call parity;
+  IV round trips; Brent and Newton agree.
+- **Deribit's conventions, measured** on the 16 Nov sample: inverse premium = USD price /
+  forward (to the 0.0001 BTC rounding; dividing by the index is off by up to 0.1 BTC); delta is
+  N(d1), not premium-adjusted; vega and theta in USD for both books.
+- **The comparison** (`research/deribit_comparison.md`, 144 minutes, both books, 235,670 quotes):
+
+  | Check (expiries 1 day or more unless said) | BTC_USDC | BTC |
+  | --- | --- | --- |
+  | Engine delta, max difference | 0.000053 | 0.000047 |
+  | Engine gamma, max (Deribit rounds to 0.00001) | 0.0000050 | 0.0000050 |
+  | Engine vega, max (USD per vol point) | 0.017 | 0.029 |
+  | Engine theta, expiries 7 days or more, max (USD a day) | 0.013 | 0.013 |
+  | Engine IV from the mark price, 7-30 days, abs delta 0.05-0.50, 99th percentile (vol points) | 0.23 | 0.25 |
+  | Surface IV against the mark, 7-30 days, abs delta 0.15-0.30: median / 99th percentile | 0.11 / 0.62 | 0.09 / 0.42 |
+  | Surface delta against Deribit's, 7-30 days, abs delta 0.15-0.30, 99th percentile | 0.0033 | 0.0022 |
+  | 0.20-delta short leg: different strike from Deribit's delta | 2 of 286 (0.7%), the neighbour | 5 of 576 (0.9%), the neighbour |
+  | Forward, future against parity: median / 95th percentile | 1.5 / 4.4 bp | 1.3 / 4.0 bp |
+  | Smile fits with butterfly arbitrage (7-30 days) | 25 of 1,018 (0) | 84 of 1,598 (0) |
+
+  Outside these: within a day of expiry Deribit's delta and theta follow its settlement rules,
+  and from 1 to about 4 days its theta isn't the instantaneous Black-76 theta; deep
+  in-the-money (abs delta above 0.85) and far-wing IVs are dominated by price ticks.
+- **Tolerances proposed, waiting for Damian's agreement** (add-on g). Engine, expiries 1 day or
+  more: delta 0.0001; gamma 0.00001 per USD; vega 0.05 USD per vol point; theta 0.05 USD a day
+  (7 days or more); IV from the mark price 0.5 vol point at the 99th percentile (7-30 days, abs
+  delta 0.05-0.50). Surface, 7-30 days, abs delta 0.05-0.50: IV median 0.25 and 99th percentile
+  1.0 vol point; delta 0.005 at the 99th percentile; the 0.20-delta leg differs from Deribit's
+  pick in at most 2% of choices and only by one strike; forward against parity 10 bp at the
+  95th percentile.
+- **Open interest** (add-on e): it lags trades by up to hours and irregularly (see
+  `docs/later.md`); no feature uses it.
+- Tests: 1,499 pass on the laptop with the database (the 9 rclone tests skip there; CI runs
+  them); ruff, ruff format and mypy (strict) clean.
 
 ## Phase 2B · Gate check (17 Nov 2026)
 
@@ -668,17 +754,15 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Damian's OK on the `CLAUDE.md` working notes. Answered 17 Nov: no healthchecks.io email
-   after the restart; `btc-vol-models` is public in Damian's account (branch `main`, latest
-   commit `4bb1cb1`), ready for Phase 3's golden tests. The second project stays on
-   recorder-1 and the repo stays public (both decided 17 Nov).
-2. Build Brief update for Phase 2B (Damian said yes): `docs/brief.md` and the folder copy. The
-   live Build Brief on claude.ai can only be edited from claude.ai.
-3. Working notes in `CLAUDE.md` for working without the helper chat (proposed 17 Nov, waiting
-   for Damian's OK).
-4. Phase 3 · Pricing and volatility surface, under option A, while the 2B gate waits for the
-   first rough trade. Every daily status check also looks for that trade.
-5. Dates: 20 Nov 08:00 UTC the 20 Nov expiry settles (no BTC_USDC entries possible 20 Nov 08:00
+1. Phase 3, Damian: agree the tolerances (above); answer the six questions in
+   `docs/formulas.md` and `docs/accounting.md`; say whether the rough service should switch to
+   the new IV, forward and realised-vol code (recommended: no, it stays as is until Phase 4/5
+   replaces it).
+2. Phase 3 deploy (infra/server-setup.md section 17), each server step with Damian's typed yes:
+   backup, migration `0004`, then `recorder jobs paper dashboard surface` restarted at :02 past
+   a minute. Then the live surface on the status page, the gate check and Prompt V.
+3. Phase 2B: every status check looks for the first rough trade (option A).
+4. Dates: 20 Nov 08:00 UTC the 20 Nov expiry settles (no BTC_USDC entries possible 20 Nov 08:00
    to 25 Nov 08:00 unless Deribit lists 4 Dec); 21 Nov the first full recorded week (14 to 20
    Nov) is complete, which Phase 4 needs; 1 Dec about 03:06 UTC the first monthly restore test.
 

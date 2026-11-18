@@ -134,3 +134,18 @@ and confirmed by Damian on 15 Nov 2026), effective from 10 Nov 2026 12:00 UTC, S
 | 28 | The maths has hand-worked golden tests only, not btc-vol-models numbers or Deribit's values. | Matches the formulas as written, not proven against references. | Phase 3 golden tests |
 
 Not a shortcut: "no new entries within 48 hours of expiry" is covered by the 7-day minimum.
+
+## Phase 3 status (18 Nov 2026)
+
+The tested replacements for shortcuts 1 to 4, 6 and 28 are **built**. The running rough service
+**still uses its shortcuts**: switching it onto the new code waits for Damian's yes (Phase 3,
+add-on c), because it would change the rule while its own gate is still open.
+
+| # | Replacement, built in Phase 3 | Rough service |
+| --- | --- | --- |
+| 1 | Our own IV solver (`optlab.pricing.iv`), a spline smile per expiry and the ATM, 25- and 10-delta buckets (`optlab.volatility.smile`, `surface`) | not switched |
+| 2 | The surface's 30-day tenor, interpolated in total variance from every usable expiry, flat outside (`optlab.volatility.surface`); both books are fitted | not switched |
+| 3 | Forwards from the dated future's mark, with put-call parity as fallback and cross-check (`optlab.volatility.forward`) | not switched |
+| 4 | Realised vol from our own 08:00 UTC index snapshots, delivery prices filling in until 13 Dec (`optlab.volatility.realised`, `features.rv_30d`) | not switched |
+| 6 | Our Black-76 Greeks match Deribit's to its 5-decimal rounding on 16 Nov (`research/deribit_comparison.md`) | not switched (it uses Deribit's delta, which now has a check) |
+| 28 | Golden tests against btc-vol-models (`tests/pricing/golden/`), plus finite differences and Deribit's values | done (tests only) |

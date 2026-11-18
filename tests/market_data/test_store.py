@@ -59,12 +59,22 @@ def test_schema_has_hypertables_compressed_after_7_days(database_url: str) -> No
                 "FROM timescaledb_information.hypertables"
             ).fetchall()
         )
-        assert hypertables == {"option_quotes": True, "underlying_ticks": True}
+        assert hypertables == {
+            "option_quotes": True,
+            "underlying_ticks": True,
+            "vol_expiries": True,  # Phase 3 surface tables (0004)
+            "vol_surface": True,
+        }
         policies = conn.execute(
             "SELECT hypertable_name, config->>'compress_after' FROM timescaledb_information.jobs "
             "WHERE proc_name = 'policy_compression' ORDER BY 1"
         ).fetchall()
-        assert policies == [("option_quotes", "7 days"), ("underlying_ticks", "7 days")]
+        assert policies == [
+            ("option_quotes", "7 days"),
+            ("underlying_ticks", "7 days"),
+            ("vol_expiries", "7 days"),
+            ("vol_surface", "7 days"),
+        ]
         segment = conn.execute(
             "SELECT attname FROM timescaledb_information.compression_settings "
             "WHERE hypertable_name = 'option_quotes' AND segmentby_column_index = 1"
