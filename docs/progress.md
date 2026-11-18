@@ -22,7 +22,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 ## Current phase
 
-Phase 3 · Pricing and volatility surface: **in progress, paused on 18 Nov 2026 at about 02:30
+Phase 3 · Pricing and volatility surface: **in progress, paused on 18 Nov 2026 at about 01:40
 UTC at Damian's request** (to carry on in a fresh conversation). Everything below is built,
 tested and pushed; nothing of Phase 3 is on the server yet. Left, in order:
 
@@ -56,9 +56,10 @@ Since 17 Nov 01:09 UTC the server also runs another of Damian's projects (Compos
 
 ## Phase 3 · Pricing and volatility surface (18 Nov 2026, paused)
 
-Built at commit `4c0a907` (CI run 44216767478 green: secret scan, lint, types, every test with
-the database and rclone, Docker image). Paused at Damian's request at about 02:30 UTC; what is
-left is under "Current phase" above.
+Built at commit `4c0a907` (01:33 UTC; CI run 44216767478 green: secret scan, lint, types,
+every test with the database and rclone, Docker image). Paused at Damian's request at about
+01:40 UTC (server clock 01:40:58 at the last read-only check); what is left is under "Current
+phase" above.
 
 Started 18 Nov 2026 at about 00:35 UTC from the Windows handover folder (repo through WSL).
 Read-only status at 00:37 (server clock): six services up 24 h, database at `0003`, 1.9 GiB
