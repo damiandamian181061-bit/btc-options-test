@@ -136,8 +136,29 @@ their own bid and ask; limit, margin, close and daily-loss rejections logged; fu
 Deribit's formula; skipped minutes. A smoke trade of 1 BTC of an at-the-money call is refused by
 the delta limit (0.5 x 89,600 is about 45% of equity), so the smoke trade is 0.1 BTC.
 
+**Laptop sync working (18 Nov 2026, about 12:45 UTC).** Damian created the laptop's `.env` with
+the read-only R2 token (checked only by name: present, git-ignored, not tracked). `optlab-data
+sync --list` shows 13-17 Nov in R2; 14-17 Nov synced in 42 s (31-33 files and 77-84 MB a day,
+302 MB, every file checked against its manifest).
+
+**Dry run on real data, 14-17 Nov (18 Nov 2026, 12:47-13:05 UTC; not the gate):**
+
+- Smoke trade on 14-15 Nov (2,880 minutes, none skipped, 36 s): bought 0.1 BTC of the 15 Nov
+  68,000 call at the ask 625.0 (mark 601.98) at 14 Nov 00:00 with the index at 68,238.49;
+  fee 2.0471547 (the 0.03% of the index part, under the 12.5% cap of 7.8125); the delivery price
+  63,993.28 was known at 08:02 and the call expired worthless (no delivery fee); P&L
+  -64.5471547 USDC. The journal is the four expected entries.
+- The exercise strategy on 14-17 Nov (5,759 minutes, about 65 s a run): 24 groups, 72 trade
+  fills, 2 partial and 4 unfilled tickets, 2 rejections (open groups), funding booked.
+  **Determinism:** two runs gave the same result hash. **Leakage:** with every price after 16
+  Nov 12:00 changed and every 8th minute after it removed, everything up to 16 Nov 12:00 was
+  identical and the whole-run hash differed. **Reconciliation:** 0 breaks in 5,759 minutes; the
+  journal balances.
+- So the gate script works on real data; a full week should take about 10-15 minutes. The week
+  14-20 Nov still has to be synced and run for the gate itself.
+
 **The gate (not run yet):** needs the week 14-20 Nov synced (complete in R2 after the 21 Nov
-00:30 UTC export) and the laptop's `.env` with the read-only R2 token (Damian, by hand).
+00:30 UTC export).
 
 ## Phase 3 · Pricing and volatility surface (18 Nov 2026): gate passed
 
@@ -945,8 +966,8 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Phase 4 gate, from Sat 21 Nov 2026 after about 01:00 UTC: Damian has pasted the read-only
-   R2 lines into the laptop's `.env`; sync 14-20 Nov; start the local results database
+1. Phase 4 gate, from Sat 21 Nov 2026 after about 01:00 UTC (the laptop's `.env` is in place
+   since 18 Nov and a dry run on 14-17 Nov passed): sync 14-20 Nov; start the local results database
    (`infra/README.md`); run `research/phase4_gate.py`; Damian checks the smoke trade by hand.
    Then Phase 5.
 2. Phase 2B: every status check looks for the first rough trade (option A).
