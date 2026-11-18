@@ -26,6 +26,7 @@ optlab-health = "optlab.market_data.service:health_main"
 optlab-data = "optlab.market_data.jobs:main"
 optlab-paper-rough = "optlab.simulator.rough_paper:main"
 optlab-surface = "optlab.volatility.worker:main"
+optlab-backtest = "optlab.simulator.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14"]
@@ -36,7 +37,7 @@ module-name = "optlab"
 
 [tool.uv]
 # The Streamlit dashboard's dependencies install with everything else (CI tests them).
-default-groups = ["dev", "dashboard"]
+default-groups = ["dev", "dashboard", "research"]
 
 [tool.ruff]
 line-length = 100
@@ -112,4 +113,7 @@ dev = [
     "pyyaml>=6.0.3",
     "ruff>=0.17.4",
     "types-pyyaml>=6.0.12.20261111",
+]
+research = [
+    "mlflow-skinny>=3.18.0",
 ]

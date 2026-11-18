@@ -74,9 +74,11 @@ BTC_USDC options since April 2026):
 **Perpetual hedges and funding** (Set B benchmarks only; v1 doesn't hedge). Perpetual trades are
 booked like options (positions at entry value, fees, realised P&L to `pnl:hedge`). Funding paid
 or received is Dr or Cr `funding` against `cash`; with a positive funding rate, longs pay
-shorts: `amount = size x index x funding rate for the period`. **Deribit's exact funding formula
-and when it is credited are to be checked against Deribit's documentation in Phase 4**, before
-the hedged benchmarks are built; nothing here assumes them.
+shorts: `amount = size x index x funding rate for the period`. Checked in Phase 4 (18 Nov 2026)
+against Deribit's "Funding Specifications": the rate is the perpetual's premium over the index
+beyond a +/-0.025% damper, capped (5% for the BTC_USDC perpetual), per 8 hours; Deribit accrues
+it continuously and moves it into cash at its 08:00 daily settlement. The backtest samples it
+once a minute and books it to cash at once (`docs/backtest.md`; equity is the same).
 
 ## Worked example: a bull put spread on BTC_USDC, held to expiry
 

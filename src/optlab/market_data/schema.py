@@ -23,9 +23,16 @@ from typing import Any
 import psycopg
 
 # sha256 of each table's columns and constraints (see ``describe``), first 16 hex digits, at
-# the head migration (0004). Unchanged since a table's own migration: 0001 recorder tables,
-# 0002 data platform, 0003 rough paper and host_boots, 0004 surface.
+# the head migration (0005). Unchanged since a table's own migration: 0001 recorder tables,
+# 0002 data platform, 0003 rough paper and host_boots, 0004 surface, 0005 backtest results and
+# risk_events.
 EXPECTED: dict[str, str] = {
+    "backtest_equity": "666641f6fe1d9f20",
+    "backtest_fills": "e91bc2ae77679531",
+    "backtest_groups": "124d035f39f9aeb8",
+    "backtest_orders": "d83b3d112b285b1e",
+    "backtest_positions": "ede1d23242c80c59",
+    "backtest_runs": "4962d17d18955b21",
     "connection_events": "f2e37fed2e4e883a",
     "data_quality": "6565481b20b21404",
     "data_quality_runs": "e18c0e87bb420429",
@@ -37,6 +44,7 @@ EXPECTED: dict[str, str] = {
     "option_quotes": "dade0c1edbf153be",
     "option_trades": "e73f76098ad54202",
     "recorder_status": "c7fd62709a09de1f",
+    "risk_events": "dbb005dfdfd55e96",
     "rough_decisions": "3d0fd6efe7e7b4d4",
     "rough_equity": "ca4c52336dc64d8e",
     "rough_fills": "e320031a207d96a7",
@@ -73,6 +81,16 @@ ROUGH_TABLES: tuple[str, ...] = (
     "rough_equity",
 )
 SURFACE_TABLES: tuple[str, ...] = ("vol_expiries", "vol_surface", "features")
+# Backtest results (the laptop's results database) and the risk gateway's log.
+BACKTEST_TABLES: tuple[str, ...] = (
+    "backtest_runs",
+    "backtest_orders",
+    "backtest_fills",
+    "backtest_positions",
+    "backtest_equity",
+    "backtest_groups",
+    "risk_events",
+)
 
 
 class SchemaMismatchError(RuntimeError):

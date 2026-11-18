@@ -131,4 +131,7 @@ class FeeSchedule(BaseModel):
 
 def load_fee_schedule(config_dir: Path = Path("configs")) -> FeeSchedule:
     data = yaml.safe_load((config_dir / FEE_FILE).read_text(encoding="utf-8"))
-    return FeeSchedule.model_validate(data)
+    # The file also holds the Phase 4 sections (perpetuals, funding), which this ignores.
+    return FeeSchedule.model_validate(
+        {k: v for k, v in data.items() if k in FeeSchedule.model_fields}
+    )

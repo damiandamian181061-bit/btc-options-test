@@ -51,4 +51,18 @@ could pick it up.
   days with the same code (`compute_minute` over `ParquetSource`). Phase 4, with the laptop sync.
 - **Combo fills and the combo fee discount** (Phase 2B). Deribit charges nothing on the cheaper
   direction of an option combo with buys and sells; the rough version fills leg by leg and pays
-  both. Phase 4 (fees) and Phase 8 (combo orders on testnet).
+  both. Damian decided on 18 Nov 2026 that backtests keep paying both legs; Phase 8 sends combo
+  orders on testnet and measures the saving, which could then become a backtest variant.
+- **VIP1 fee tier** (Phase 4). Deribit's VIP1 (2.5 bps, cap 10.42%) needs 100k USDC equity as a
+  30-day average; paper capital is exactly 100,000 USDC, so any loss drops below it. Backtests
+  stay on Standard. A fee-sensitivity variant at VIP1 would show what it is worth.
+- **Portfolio Margin** (Phase 4). Standard Margin gives a credit spread no offset for its long
+  leg; Portfolio Margin would margin it near its maximum loss. Only matters if margin ever binds
+  (the gateway logs every margin rejection). Phase 8 compares our Standard Margin estimate with
+  testnet's.
+- **Deeper fills** (Phase 4). The snapshot keeps only the top of the book, so a ticket larger
+  than the top size fills in part. The raw stream records top-of-book changes, not depth;
+  Deribit's `book` channel with a few levels would let fills walk the book. Phase 10 at the
+  earliest, if partial fills turn out to matter.
+- **Faster minute reads** (Phase 4). `ParquetSource` filters a whole day's table for each minute;
+  an index from minute to row range would make week-long backtests several times faster.

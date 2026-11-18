@@ -1,0 +1,42 @@
+# Phase 4 risk gateway: the brief's confirmed "Sizing and limits" table (25 Oct 2026), plus the
+# margin guard (Standard Margin, Damian's choice on 18 Nov 2026). Loaded by optlab.risk.limits.
+# Every order passes the gateway; an opening ticket that would breach any limit is rejected and
+# logged in risk_events. A limit set to null is not applied (benchmarks may need that).
+label: v1
+currency: USDC
+starting_equity: "100000"  # paper capital
+
+max_loss_of_equity: "0.02"  # each position group (spread): maximum loss at most 2% of equity
+max_open_groups: 5  # open spreads
+max_open_per_expiry: 2
+max_total_loss_of_equity: "0.10"  # sum of the open groups' maximum losses
+max_delta_of_equity: "0.20"  # |net delta x index| at most 20% of equity, either direction
+max_vega_of_equity: "0.005"  # |vega per 1 vol point| at most 0.5% of equity, either direction
+daily_loss_limit: "0.03"  # no new trades after a 3% loss within one UTC day (cut at 00:00)
+kill_switch_drawdown: "0.10"  # no new trades after a 10% drawdown from peak equity, until review
+
+# Deribit Standard Margin (cross or segregated: per position, no offset between positions).
+# Source: "Linear USDC Options", contract specifications, BTC_USDC column (page updated
+# 18 Nov 2026 07:14:34 UTC, read 18 Nov 2026), and "Standard Margin Requirements by Instrument"
+# for the BTC_USDC perpetual (updated 11 Nov 2026). Per BTC:
+#   short call IM = max(0.15 - OTM / underlying mark, 0.10) x index + mark
+#   short put  IM = max((0.15 - OTM / underlying mark) x index, 0.10 x strike) + mark
+#   short call MM = 0.075 x index + mark;  short put MM = 0.075 x min(index, strike) + mark
+#   long options: the premium, paid in full; nothing more.
+# The underlying mark is the expiry's future mark (Deribit's underlying_price for the option).
+margin:
+  account: standard
+  source: https://support.deribit.com/hc/en-us/articles/31424932728093-Linear-USDC-Options
+  page_updated: 2026-11-18T07:14:34Z
+  read_on: 2026-11-18
+  short_option_im_base: "0.15"
+  short_option_im_floor: "0.10"
+  short_option_mm: "0.075"
+  # "Maximum total short option position size: 1,000,000 USDC" (Standard Margin); measured here
+  # as short BTC x the index.
+  max_short_option_notional: "1000000"
+  # BTC_USDC perpetual, tier 1: 50x (IM 2%, MM 1.33% of notional) up to 5% of its Max Amount
+  # (88.45 BTC); larger sizes are refused rather than modelled.
+  perpetual_im: "0.02"
+  perpetual_mm: "0.0133"
+  perpetual_max_size: "88.45"

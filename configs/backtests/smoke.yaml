@@ -1,0 +1,17 @@
+# Phase 4 smoke trade, checked by hand with Damian: buy 0.1 BTC of the BTC_USDC call nearest the
+# forward on the 20 Nov 2026 expiry at the first minute of the week, hold it to expiry, settle it
+# at Deribit's delivery price through the expiry's future. 0.1 BTC because 1 BTC of an at-the-money
+# call (delta 0.5) would break the 20%-of-equity delta limit.
+name: smoke
+description: one ATM call held to expiry (Phase 4 gate)
+book: linear
+start: 2026-11-14T00:00:00Z
+end: 2026-11-21T00:00:00Z
+strategy:
+  name: smoke
+  params:
+    amount: "0.1"
+    min_days: 6  # the first expiry at least 6 days away: 20 Nov 2026 08:00 UTC
+risk: v1
+fee_multiplier: "1"
+seed: 0

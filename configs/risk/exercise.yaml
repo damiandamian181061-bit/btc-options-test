@@ -1,0 +1,29 @@
+# Risk limits for the engine-exercise runs of the Phase 4 gate only (random trades, results don't
+# count). The same as v1, except the maximum-loss limits are off so that perpetual hedges, whose
+# loss is not bounded, can trade and funding gets booked. Delta, vega, margin and the monitors
+# stay on.
+label: exercise
+currency: USDC
+starting_equity: "100000"
+
+max_loss_of_equity: null
+max_open_groups: 8
+max_open_per_expiry: 4
+max_total_loss_of_equity: null
+max_delta_of_equity: "0.20"
+max_vega_of_equity: "0.005"
+daily_loss_limit: "0.03"
+kill_switch_drawdown: "0.10"
+
+margin:
+  account: standard
+  source: https://support.deribit.com/hc/en-us/articles/31424932728093-Linear-USDC-Options
+  page_updated: 2026-11-18T07:14:34Z
+  read_on: 2026-11-18
+  short_option_im_base: "0.15"
+  short_option_im_floor: "0.10"
+  short_option_mm: "0.075"
+  max_short_option_notional: "1000000"
+  perpetual_im: "0.02"
+  perpetual_mm: "0.0133"
+  perpetual_max_size: "88.45"

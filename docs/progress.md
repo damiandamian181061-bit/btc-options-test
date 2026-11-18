@@ -12,7 +12,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | 2 · Data and checks | Week 1 · days 4–7 | Restore from R2 works; the gap report covers every recorded day; the liquidity report names the book | **Passed** 15 Nov 2026 |
 | 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | **Gate open** (checked 17 Nov 2026): ran over 24 h and decides daily, shortcut list exists, but no rough trade yet; open until the first one shows (Damian's option A), Phase 3 may start meanwhile |
 | 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | **Passed** 18 Nov 2026 (deployed 01:53 UTC; tolerances agreed and checked on 17 Nov data, all 22 checks pass; formulas and accounting signed off) |
-| 4 · Backtest engine | Weeks 2–3 | Determinism, leakage and reconciliation tests pass on a real week; hand-checked smoke trade matches | Open |
+| 4 · Backtest engine | Weeks 2–3 | Determinism, leakage and reconciliation tests pass on a real week; hand-checked smoke trade matches | **Built** 18 Nov 2026 and tested on made-up data; the gate runs on the week 14-20 Nov from Sat 21 Nov |
 | 5 · Strategies and results | Week 3 | Full report of v1 rules vs every benchmark on the locked test, after costs | Open |
 | 6 · Streamlit dashboard | Weeks 3–4, in parallel | Public site loads every page on laptop and phone; nothing on it changes the system | Open |
 | 7 · JEV challenger | Week 4 | JEV-versus-rules report on the same frozen folds, seeds and cost model | Open |
@@ -22,11 +22,11 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 ## Current phase
 
-Phase 3 · Pricing and volatility surface: **gate passed on 18 Nov 2026** (below).
+Phase 4 · Backtest engine: **built on 18 Nov 2026; the gate waits for the week 14-20 Nov**,
+complete in R2 after the 21 Nov 00:30 UTC export (section below). Then: sync the week, run
+`research/phase4_gate.py`, Damian checks the smoke trade by hand.
 
-Phase 4 · Backtest engine: **next, not started**. Its gate needs the first full recorded week
-(14 to 20 Nov), complete from **Sat 21 Nov 2026** (synced after that night's 00:30 UTC
-export); the build itself may start earlier.
+Phase 3 · Pricing and volatility surface: **gate passed on 18 Nov 2026** (below).
 
 Settled ahead of Phase 4 (18 Nov 2026):
 
@@ -63,6 +63,81 @@ The restore test runs monthly from a systemd timer.
 
 Since 17 Nov 01:09 UTC the server also runs another of Damian's projects (Compose project
 `btc-dashboard`, not part of this repo); see "Open questions".
+
+## Phase 4 · Backtest engine (18 Nov 2026): built, gate from 21 Nov
+
+Started 18 Nov 2026 at about 11:00 UTC in a fresh conversation from the Windows handover folder
+(repo through WSL). What was built is described in `docs/backtest.md`.
+
+**Status check first (Prompt S, read-only, server clock 11:04 UTC):** seven services Up, 0
+restarts (recorder, jobs, surface, dashboard, paper since 01:53; db and health since the 17 Nov
+00:52 boot); no restart pending or scheduled; database `0004`; checkout `3bed9c3`; memory 1.8
+GiB available, disk 31%. Gap report 18 Nov 02:00-10:00: 8 hours checked, 480 of 480 minutes,
+nothing skipped (instrument-level empty and crossed books only, as usual). Backups: the 17 Nov
+export uploaded at 00:30. Rough paper decisions: 18 Nov 09:00 "no trade" (IV30 41.15% against
+RV30 43.95%); no rough trade yet, so the Phase 2B gate stays open. BTC_USDC expiries listed: 19,
+20, 21, **22 (new)**, 27 Nov, 25 Dec, 26 Mar; **still no 4 Dec**. The other project's two
+containers are up and were not touched.
+
+**Damian's decisions (18 Nov 2026, about 11:20 UTC; each recommendation accepted):**
+
+1. **Margin model: Deribit Standard Margin.** What a new account gets, and the most
+   conservative: a long option gives no offset to a short one, so a credit spread margins its
+   short leg in full. Formulas from Deribit's "Linear USDC Options" page (updated 18 Nov 2026
+   07:14 UTC) in `configs/risk/v1.yaml`; an order whose initial margin would exceed the margin
+   balance is rejected and logged; a maintenance shortfall stops new trades (no simulated
+   liquidation).
+2. **Combo discount: not modelled.** Both legs of a spread pay the full fee, as the brief's
+   leg-by-leg fills; Phase 8's testnet combo orders measure the saving.
+3. **rclone 1.75.2 installed on the laptop** (WSL, `~/.local/bin`), copied out of the official
+   image pinned by digest, as on the server and in CI (`infra/README.md`).
+
+**Deribit's pages re-read 18 Nov 2026** (in the desktop app's browser; the site refuses
+automated fetches):
+- Fees: **unchanged** since 11 Nov 2026 09:46:20 UTC. Perpetuals 1.5 / 3.5 bps maker / taker
+  (Standard) added to `configs/fees/deribit.yaml` for the hedged benchmarks.
+- Funding Specifications (updated 17 Nov 2026): the funding formula and caps, now in the fee
+  config and `optlab.simulator.fees` (this settles the open point in `docs/accounting.md`).
+- Linear USDC Options (updated 18 Nov 2026 07:14 UTC): Standard Margin formulas; a 1,000,000
+  USDC limit on short options; a tick-size change on 20 Nov for BTC_USDC options priced
+  1,000-3,000 USDC (20 -> 5 USDC; no effect on the backtest, which fills at quoted prices).
+
+**Built** (tests first for fees, the ledger, settlement and margin):
+
+- `optlab.simulator.fees`: option, delivery and perpetual fees and funding; a multiplier for
+  cost sensitivity.
+- `optlab.ledger.journal`, `books`: double-entry journal in exact decimals; the booking rules
+  of `docs/accounting.md`, including the two-step settlement through the expiry's future;
+  perpetual P&L and funding; reconciliation.
+- `optlab.simulator.fills`: top-of-book fills, partial beyond the quoted size, spread legs the
+  same amount, leg by leg.
+- `optlab.risk.margin`, `limits`, `gateway`: every limit of the brief's table, the daily loss
+  limit and the drawdown kill switch, Standard Margin, `risk_events`.
+- `optlab.simulator.engine`: the event loop; `market` (state at t through `MarketDataView`),
+  `groups`, `records` (result hash), `config`, `runinfo` (git commit, dataset hash, seed),
+  `results` (results tables, MLflow), `cli` (`optlab-backtest`).
+- `optlab.domain.orders` (tickets: strategies create nothing else), `optlab.strategy.base`,
+  `smoke`, `exercise`.
+- Migration `0005`: `backtest_runs`, `backtest_orders`, `backtest_fills`,
+  `backtest_positions`, `backtest_equity`, `backtest_groups`, `risk_events` (not applied on the
+  server: not needed there until Phase 8).
+- `configs/risk/v1.yaml`, `exercise.yaml`; `configs/backtests/smoke.yaml`, `exercise.yaml`;
+  `research/phase4_gate.py`; `docs/backtest.md`; rough shortcuts 14 to 25 marked replaced in
+  `docs/rough-version.md`. MLflow: `mlflow-skinny` in a laptop-only dependency group
+  (`research`), not in the server image.
+
+**Tested on made-up data** (`tests/backtest/`): the worked example of `docs/accounting.md` line
+by line, including all three settlement outcomes; the two-step settlement pays exactly intrinsic
+value (calls and puts, long and short, three prices); reconciliation over 400 random ledger
+steps; determinism (same config, same result hash; another seed, another hash); leakage
+(changing every price after a cut-off and dropping minutes leaves every record up to it
+identical); reconciliation at every minute of an engine run; partial fills; spread legs at
+their own bid and ask; limit, margin, close and daily-loss rejections logged; funding against
+Deribit's formula; skipped minutes. A smoke trade of 1 BTC of an at-the-money call is refused by
+the delta limit (0.5 x 89,600 is about 45% of equity), so the smoke trade is 0.1 BTC.
+
+**The gate (not run yet):** needs the week 14-20 Nov synced (complete in R2 after the 21 Nov
+00:30 UTC export) and the laptop's `.env` with the read-only R2 token (Damian, by hand).
 
 ## Phase 3 · Pricing and volatility surface (18 Nov 2026): gate passed
 
@@ -870,10 +945,10 @@ Decisions made during Phase 0 (9 Nov):
 
 ## Next
 
-1. Phase 4 (backtest engine): the build may start any time; the gate runs on the week 14-20
-   Nov from Sat 21 Nov 2026. First: the laptop sync (rclone 1.75.2) with the read-only R2
-   token Damian created on 18 Nov (he pastes it into the laptop's `.env` by hand). The margin
-   model is built in Phase 4 (decided 18 Nov).
+1. Phase 4 gate, from Sat 21 Nov 2026 after about 01:00 UTC: Damian has pasted the read-only
+   R2 lines into the laptop's `.env`; sync 14-20 Nov; start the local results database
+   (`infra/README.md`); run `research/phase4_gate.py`; Damian checks the smoke trade by hand.
+   Then Phase 5.
 2. Phase 2B: every status check looks for the first rough trade (option A).
 4. Dates: 20 Nov 08:00 UTC the 20 Nov expiry settles (no BTC_USDC entries possible 20 Nov 08:00
    to 25 Nov 08:00 unless Deribit lists 4 Dec); 21 Nov the first full recorded week (14 to 20

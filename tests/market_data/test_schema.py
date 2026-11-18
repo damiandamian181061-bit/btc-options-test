@@ -27,6 +27,7 @@ def test_every_service_table_has_an_expected_fingerprint() -> None:
         schema.VIEW_TABLES,
         schema.ROUGH_TABLES,
         schema.SURFACE_TABLES,
+        schema.BACKTEST_TABLES,
         EXPORT_TABLES,
     )
     for tables in lists:
@@ -47,9 +48,9 @@ def test_expected_fingerprints_match_the_head_migration(database_url: str) -> No
         ]
         assert set(tables) == set(schema.EXPECTED)
         assert schema.fingerprints(conn, tables) == schema.EXPECTED
-        assert schema.revision(conn) == "0004"
+        assert schema.revision(conn) == "0005"
         for tables_ in (schema.RECORDER_TABLES, EXPORT_TABLES, schema.SURFACE_TABLES):
-            assert schema.check(conn, tables_, "test") == "0004"
+            assert schema.check(conn, tables_, "test") == "0005"
 
 
 @pytest.mark.db
@@ -72,7 +73,7 @@ def test_a_changed_table_is_refused(database_url: str) -> None:
         conn.execute("ALTER TABLE option_quotes ADD COLUMN extra integer")
         with pytest.raises(schema.SchemaMismatchError, match=r"option_quotes: changed") as e:
             schema.check(conn, schema.RECORDER_TABLES, "the recorder")
-        assert "revision '0004'" in str(e.value)
+        assert "revision '0005'" in str(e.value)
         # Services that don't use the table are not affected.
         schema.check(conn, schema.SURFACE_TABLES, "the surface worker")
         conn.execute("ALTER TABLE delivery_prices DROP CONSTRAINT delivery_prices_pkey")
@@ -85,4 +86,4 @@ def test_check_url_exits_with_the_reason(database_url: str) -> None:
         conn.execute("DROP TABLE features")
     with pytest.raises(SystemExit, match="features: missing"):
         schema.check_url(database_url, schema.SURFACE_TABLES, "the surface worker")
-    assert schema.check_url(database_url, schema.RECORDER_TABLES, "the recorder") == "0004"
+    assert schema.check_url(database_url, schema.RECORDER_TABLES, "the recorder") == "0005"

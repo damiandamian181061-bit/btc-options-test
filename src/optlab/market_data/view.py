@@ -30,6 +30,7 @@ same problems in the data at that minute, so skipping them does not look ahead.
 """
 
 import bisect
+import json
 from collections import OrderedDict
 from collections.abc import Iterator
 from datetime import date
@@ -238,6 +239,15 @@ class ParquetSource:
         if not folder.is_dir():
             return []
         return sorted(date.fromisoformat(p.stem) for p in folder.glob("*.json"))
+
+    def dataset_versions(self, first: date, last: date) -> dict[date, str]:
+        """Each exported day's dataset version (from its manifest), for the run record."""
+        out: dict[date, str] = {}
+        for day in self.days():
+            if first <= day <= last:
+                manifest = json.loads((self.root / MANIFESTS / f"{day}.json").read_text())
+                out[day] = manifest["dataset_version"]
+        return out
 
     def _day(self, table: str, day: date) -> pa.Table:
         key = (table, day)

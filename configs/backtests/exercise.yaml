@@ -1,0 +1,17 @@
+# Phase 4 gate: random spreads and perpetual hedges over the first full recorded week, for the
+# determinism, leakage and reconciliation tests on real data. The results mean nothing.
+name: exercise
+description: random trades that exercise the engine (Phase 4 gate)
+book: linear
+start: 2026-11-14T00:00:00Z
+end: 2026-11-21T00:00:00Z
+strategy:
+  name: exercise
+  params:
+    p_open: 0.004
+    p_close: 0.004
+    p_hedge: 0.002
+    min_days: 1
+risk: exercise
+fee_multiplier: "1"
+seed: 20261114

@@ -150,3 +150,25 @@ its own gate is still open. Phase 4 and 5 replace it.
 | 4 | Realised vol from our own 08:00 UTC index snapshots, delivery prices filling in until 13 Dec (`optlab.volatility.realised`, `features.rv_30d`) | not switched |
 | 6 | Our Black-76 Greeks match Deribit's to its 5-decimal rounding (16 Nov), and on 17 Nov every check is inside the agreed tolerances (`research/deribit_comparison.md`) | not switched (it uses Deribit's delta, which now has a check) |
 | 28 | Golden tests against btc-vol-models (`tests/pricing/golden/`), plus finite differences and Deribit's values | done (tests only) |
+
+## Phase 4 status (18 Nov 2026)
+
+The backtest engine replacing shortcuts 14 to 25 is **built and tested on made-up data**
+(`docs/backtest.md`); its gate runs on the recorded week 14-20 Nov from 21 Nov 2026. The rough
+paper service keeps running unchanged until Phase 5 and 8 replace it, so rough results still
+don't count.
+
+| # | Replacement, built in Phase 4 | Where |
+| --- | --- | --- |
+| 14 | Every recorded minute is processed in order, including those after a gap | `optlab.simulator.engine` |
+| 15 | Fills up to the quoted size, the rest dropped (`partial`); spreads fill the same amount on both legs | `optlab.simulator.fills` |
+| 16 | Legs fill one by one and both pay: Damian decided on 18 Nov 2026 not to model the combo discount in backtests; Phase 8 sends combo orders | `configs/fees/deribit.yaml` |
+| 17 | Fee schedule re-read 18 Nov 2026 (unchanged), Standard tier, taker, with perpetual fees and funding; fee rounding still not modelled (documented) | `optlab.simulator.fees` |
+| 18 | Exits are a strategy rule: v1's exit checks (and any bid-ask width check) are Phase 5; the engine fills whatever the strategy sends at executable prices | Phase 5 |
+| 19 | One delivery fee per in-the-money option, before any netting; none for the future | `optlab.ledger.books`, engine settlement |
+| 20 | Double-entry journal in exact decimals, reconciled at every minute | `optlab.ledger.journal`, `books` |
+| 21 | A position without a mark at t is valued at its last mark, counted as stale; equity is recorded every minute | engine |
+| 22 | Two-step settlement through the expiry's future (`settlement:<future>`), payoff proven equal to intrinsic value | `optlab.ledger.books` |
+| 23 | Maximum loss counts entry fees and the fees to close every leg (above the delivery fee) | `optlab.risk.gateway` |
+| 24 | Risk gateway with every limit of the brief's table, daily loss limit, drawdown kill switch and the `risk_events` log (the kill-switch command on the server is Phase 8) | `optlab.risk.gateway`, migration `0005` |
+| 25 | Deribit Standard Margin guard (Damian's choice, 18 Nov 2026): initial margin at most the margin balance, maintenance shortfall stops new trades, Deribit's short-option limit | `optlab.risk.margin` |

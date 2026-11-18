@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # The newest migration this code ships. Services don't require it: each checks only that the
 # tables it uses are as expected (optlab.market_data.schema), so a migration that only adds
 # tables needs no restart of the recorder, the backup job or the paper service.
-SCHEMA_REVISION = "0004"
+SCHEMA_REVISION = "0005"
 
 _INSTRUMENT_COLUMNS = (
     "instrument_name",

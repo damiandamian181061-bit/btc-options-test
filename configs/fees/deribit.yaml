@@ -1,4 +1,6 @@
-# Deribit option fees, from Deribit's published fee page. Loaded by optlab.simulator.rough_fees.
+# Deribit fees, from Deribit's published fee page. Loaded by optlab.simulator.fees (backtests)
+# and optlab.simulator.rough_fees (the rough paper service, option sections only).
+# Re-read 18 Nov 2026 for Phase 4: unchanged (page last updated 11 Nov 2026 09:46:20 UTC).
 #
 # Source:  https://support.deribit.com/hc/en-us/articles/25944746248989-Fees
 # Page last updated 11 Nov 2026 09:46 UTC; read 15 Nov 2026. Damian confirmed these numbers on
@@ -49,8 +51,40 @@ delivery:
     cap_of_value: "0.125"
   daily_exempt: true
 
-# On the page but not modelled (docs/rough-version.md):
-# - option combo discount: in a combo with buy and sell legs, the cheaper direction's fees are 0
-#   (the rough version fills leg by leg and charges both legs);
+# Perpetuals (Phase 4: the hedged benchmarks of Set B), Standard tier, re-read 18 Nov 2026 (page
+# unchanged since 11 Nov 2026 09:46 UTC): "Perpetuals and futures" 1.5 / 3.5 bps maker / taker,
+# as a fraction of the traded notional (amount in BTC x price). Paper fills are taker.
+# The rough paper service ignores this section and the ones below.
+perpetual:
+  linear:  # BTC_USDC-PERPETUAL: 1 contract = 1 BTC, priced and settled in USDC
+    currency: USDC
+    maker: "0.00015"
+    taker: "0.00035"
+
+# Funding on perpetuals: no fee, paid between longs and shorts, continuously (Deribit's
+# "Funding Specifications", https://support.deribit.com/hc/en-us/articles/31424939178397,
+# updated 17 Nov 2026, read 18 Nov 2026):
+#   premium rate = (perpetual mark - index) / index
+#   funding rate = clamp(max(damper, premium) + min(-damper, premium), -cap, +cap)   (per 8 hours)
+#   payment = funding rate x position size x (time held / 8 hours); positive: longs pay shorts.
+# For a linear perpetual the position size is its notional in USDC (amount x index, as in the
+# page's SOL_USDC example). The page lists caps of 0.5% (BTC), 1% (ETH) and 5% ("USDC & USDT");
+# BTC_USDC-PERPETUAL takes the 5% column. The backtest samples mark and index once a minute.
+funding:
+  source: https://support.deribit.com/hc/en-us/articles/31424939178397-Funding-Specifications
+  page_updated: 2026-11-17T09:15:02Z
+  read_on: 2026-11-18
+  damper: "0.00025"
+  period_hours: 8
+  cap:
+    BTC_USDC-PERPETUAL: "0.05"
+    BTC-PERPETUAL: "0.005"
+
+# Option combos: Damian decided on 18 Nov 2026 not to model the combo discount in backtests
+# (both legs pay, as the brief's leg-by-leg fills); Phase 8's testnet combo orders measure it.
+combo_discount: false
+
+# On the page but not modelled (docs/rough-version.md, docs/backtest.md):
+# - option combo discount (above);
 # - block trades 0.03%; VIP tiers (VIP1 from 100k USDC equity: 0.025%, cap 10.42%);
-# - liquidation fees; collateral fees on negative balances.
+# - liquidation fees; collateral fees on negative balances; Deribit's fee rounding.
