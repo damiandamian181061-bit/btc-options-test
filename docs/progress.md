@@ -11,7 +11,7 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 | 1 · Recorder live | Week 1 · days 2–4 | 24 h with no gap over 5 min in `option_quotes`; day-one volume measured and the raw-stream cap set from it | **Passed** 14 Nov 2026 (raw-stream cap chosen 14 Nov) |
 | 2 · Data and checks | Week 1 · days 4–7 | Restore from R2 works; the gap report covers every recorded day; the liquidity report names the book | **Passed** 15 Nov 2026 |
 | 2B · Rough end-to-end version | End of week 1 | Paper service runs 24 h and shows its trades; shortcut list exists (results don't count yet) | **Gate open** (checked 17 Nov 2026): ran over 24 h and decides daily, shortcut list exists, but no rough trade yet; open until the first one shows (Damian's option A), Phase 3 may start meanwhile |
-| 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | **Built** 18 Nov 2026 (laptop, CI); golden tests pass; waiting for Damian: tolerances, the server deploy, formula and accounting sign-off |
+| 3 · Pricing and surface | Week 2 | IVs and Greeks match Deribit and finite differences within agreed tolerances; golden tests match btc-vol-models; live surface on the status page | **In progress, paused 18 Nov 2026** (Damian): built and tested on the laptop and in CI, golden tests pass; not deployed. Waiting for Damian: tolerances, the server deploy, formula and accounting sign-off |
 | 4 · Backtest engine | Weeks 2–3 | Determinism, leakage and reconciliation tests pass on a real week; hand-checked smoke trade matches | Open |
 | 5 · Strategies and results | Week 3 | Full report of v1 rules vs every benchmark on the locked test, after costs | Open |
 | 6 · Streamlit dashboard | Weeks 3–4, in parallel | Public site loads every page on laptop and phone; nothing on it changes the system | Open |
@@ -22,10 +22,19 @@ questions. A phase ends only when its gate passes, with the evidence recorded he
 
 ## Current phase
 
-Phase 3 · Pricing and volatility surface: **built and tested on the laptop** (18 Nov 2026,
-below). Still to do: Damian agrees the tolerances, the server deploy (migration `0004` and the
-`surface` service, each step with his typed yes), the surface on the live status page, and his
-review of `docs/formulas.md` and `docs/accounting.md`.
+Phase 3 · Pricing and volatility surface: **in progress, paused on 18 Nov 2026 at about 02:30
+UTC at Damian's request** (to carry on in a fresh conversation). Everything below is built,
+tested and pushed; nothing of Phase 3 is on the server yet. Left, in order:
+
+1. Damian's answers: agree (or change) the proposed tolerances; whether the rough paper service
+   switches to the new code (recommended: no); the six questions in `docs/formulas.md` (1-4)
+   and `docs/accounting.md` (5-6).
+2. The server deploy (infra/server-setup.md section 17), with Damian's typed yes: backup and
+   read-back, migration `0004`, a dry run of `optlab-surface`, then `recorder jobs paper
+   dashboard surface` restarted at :02 past a minute.
+3. The live surface on the status page; re-run `research/deribit_comparison.py` if the
+   tolerances change (re-pull a recorded day read-only first: the 16 Nov sample was in a
+   scratch folder and is gone); the gate check and Prompt V; record the gate here.
 
 Phase 2B · Rough end-to-end version: **running** since 15 November 2026 15:30 UTC. Gate
 checked on 17 Nov (below): two of its three parts pass; "shows its trades" waits for the first
@@ -45,7 +54,11 @@ The restore test runs monthly from a systemd timer.
 Since 17 Nov 01:09 UTC the server also runs another of Damian's projects (Compose project
 `btc-dashboard`, not part of this repo); see "Open questions".
 
-## Phase 3 · Pricing and volatility surface (18 Nov 2026)
+## Phase 3 · Pricing and volatility surface (18 Nov 2026, paused)
+
+Built at commit `4c0a907` (CI run 44216767478 green: secret scan, lint, types, every test with
+the database and rclone, Docker image). Paused at Damian's request at about 02:30 UTC; what is
+left is under "Current phase" above.
 
 Started 18 Nov 2026 at about 00:35 UTC from the Windows handover folder (repo through WSL).
 Read-only status at 00:37 (server clock): six services up 24 h, database at `0003`, 1.9 GiB
